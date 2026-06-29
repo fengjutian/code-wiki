@@ -2,7 +2,19 @@
 
 import json
 import os
+import sys as _sys
 from pathlib import Path
+
+
+def _to_native_path(path_str: str) -> str:
+    """Convert Windows paths to native paths (/mnt/c/...) on Linux/WSL."""
+    if not path_str or _sys.platform != "linux":
+        return path_str
+    if len(path_str) >= 2 and path_str[1] == ":":
+        drive = path_str[0].lower()
+        rest = path_str[2:].replace("\\", "/")
+        return f"/mnt/{drive}{rest}"
+    return path_str.replace("\\", "/")
 
 # ---- Global config (in-memory, persisted to .code-wiki/config.json) ----
 _config: dict = {
@@ -24,11 +36,26 @@ _config: dict = {
 
 # Look for config in CWD (or its parent) as a fallback when repo_path is not yet known
 def _find_config_in_cwd() -> Path | None:
-    """Search up from CWD for .code-wiki/config.json."""
+    """Search for .code-wiki/config.json in common locations.
+    
+    This is needed because _get_config_path() requires repo_path to be set,
+    but repo_path is only loaded from the config file — a chicken-and-egg
+    problem solved by broadly searching known locations.
+    """
     candidates = [
         Path.cwd() / ".code-wiki" / "config.json",
         Path.cwd().parent / ".code-wiki" / "config.json",
     ]
+    # Check known paths from previous save_config_to_disk() runs.
+    # repo_path is "D:\order-project\order" → _to_native_path gives:
+    #   Linux/WSL: /mnt/d/order-project/order/.code-wiki/config.json
+    #   Windows:   D:\\order-project\\order\\.code-wiki\\config.json
+    for _cfg in [
+        Path("/mnt/d/order-project/order/.code-wiki/config.json"),
+        Path("D:\\order-project\\order\\.code-wiki\\config.json"),
+    ]:
+        if _cfg.exists() and _cfg.stat().st_size > 50:
+            return _cfg
     for c in candidates:
         if c.exists():
             return c
@@ -48,7 +75,8 @@ def get_wiki_path() -> Path:
     """
     explicit = _config.get("wiki_path", "")
     if explicit:
-        p = Path(explicit)
+        native = _to_native_path(explicit)
+        p = Path(native)
         # Get last path component (handles both / and \ cross-platform)
         final = explicit.rstrip("/\\").split("/")[-1].rsplit("\\")[-1]
         if final == ".code-wiki":
@@ -57,14 +85,14 @@ def get_wiki_path() -> Path:
         return p / ".code-wiki"
     repo = _config.get("repo_path", "")
     if repo:
-        return Path(repo) / ".code-wiki"
+        return Path(_to_native_path(repo)) / ".code-wiki"
     return Path(".code-wiki")  # fallback to CWD
 
 
 def _get_config_path() -> Path | None:
     repo = _config.get("repo_path", "")
     if repo:
-        return Path(repo) / ".code-wiki" / "config.json"
+        return Path(_to_native_path(repo)) / ".code-wiki" / "config.json"
     # Fallback: search CWD and parent for config.json
     cwd_config = _find_config_in_cwd()
     if cwd_config:

@@ -209,6 +209,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       if (data.repo_path) {
         localStorage.setItem("code-wiki-repo-path", data.repo_path);
       }
+      // Auto-sync api_key to backend if we have one stored locally (e.g. after restart)
+      // Only sync once per session to avoid repeated PUTs
+      const storedKey = localStorage.getItem("code-wiki-api-key");
+      if (storedKey && !sessionStorage.getItem("code-wiki-api-synced")) {
+        sessionStorage.setItem("code-wiki-api-synced", "1");
+        await get().saveConfig();
+      }
     } catch {
       // Backend not available yet — use defaults (localStorage already loaded at init)
     }
