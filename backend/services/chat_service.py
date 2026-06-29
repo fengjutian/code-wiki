@@ -179,10 +179,12 @@ class ChatService:
         RAG query → SSE stream.
         Yields plain text chunks; frontend wraps in `data: ...\n\n`.
         """
-        # Step 1: Retrieve relevant Wiki chunks (semantic search)
+        # Step 1: Retrieve relevant code chunks (hybrid search + optional reranker)
         try:
             query_vec = await self.embedder.embed_query(question)
-            retrieved = self.embedder.query(question, top_k=DEFAULT_TOP_K, query_embedding=query_vec)
+            retrieved = self.embedder.query_with_rerank(
+                question, top_k=DEFAULT_TOP_K, query_embedding=query_vec, use_reranker=True,
+            )
         except Exception as e:
             logging.warning(f"Embedder query failed: {e}")
             retrieved = []
@@ -206,8 +208,8 @@ class ChatService:
         if retrieved:
             system_prompt = (
                 "你是 Code Wiki 智能助手，帮助用户理解项目代码。\n"
-                "上方有 Wiki 文档（AI 代码分析）和相关源代码。优先参考 Wiki 了解高层逻辑，"
-                "再结合源代码确认实现细节。信息不完整时可结合编程常识补充，但要说明来源。\n"
+                "上方有从代码库中按函数/类/方法提取的相关代码片段。优先参考代码实现逻辑，"
+                "结合编程常识回答。信息不完整时可补充说明，但要标明来源。\n"
                 "要求：引用代码用 [src:path:line] 格式；中文简洁回答；不重复问题；末尾列出参考来源。"
             )
             builder = (

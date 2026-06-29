@@ -291,7 +291,7 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
 
             wiki_gen.write_all(wiki_pages)
 
-            # ---- Step 6: Embed Wiki for RAG ----
+            # ---- Step 6: Embed AST chunks for RAG (from source code, not wiki) ----
             if _scan_cancel_event.is_set():
                 logger.info("Scan cancelled before embedding")
                 _push_status(status="cancelled", progress=1.0, current_step="已取消", finished_at=datetime.now().isoformat())
@@ -300,7 +300,7 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
             _push_status(
                 status="generating",
                 progress=0.95,
-                current_step=f"正在向量化 {len(wiki_pages)} 个 Wiki 页面...",
+                current_step=f"正在向量化 {len(modules)} 个模块的代码符号...",
             )
 
             embedder = Embedder(
@@ -309,7 +309,7 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
                 api_key=api_key,
                 base_url=llm_config.get("base_url", "https://api.deepseek.com"),
             )
-            await embedder.rebuild_index(wiki_pages)
+            await embedder.rebuild_ast_index(modules)
 
         # ---- Step 7: Write state.json ----
         _write_state(modules, dep_graph, mode)
