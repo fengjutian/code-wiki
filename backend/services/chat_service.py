@@ -1,13 +1,15 @@
 """
-RAG Chat Service — retrieves relevant Wiki chunks and streams LLM answers.
+RAG Chat Service — retrieves relevant Wiki chunks + source code and streams LLM answers.
 
 Pipeline:
   user question → keyword search Embedder → Top-K Wiki chunks
-  → construct prompt → DeepSeek Chat API (SSE stream) → yield chunks
+  → read source files → construct prompt → DeepSeek Chat API (SSE stream)
+  → yield chunks
 """
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import List, AsyncGenerator, Optional
 
 from httpx import AsyncClient, Timeout
@@ -53,6 +55,29 @@ class ChatService:
             )
         return self._client
 
+    # ---- Source reading ----
+
+    @staticmethod
+    def _read_source(repo_path: str, source_path: str, max_bytes: int = 2000) -> str:
+        """Read a source file from the repo, truncated to *max_bytes* UTF-8 bytes."""
+        full = Path(repo_path) / source_path
+        try:
+            if not full.is_file():
+                return ""
+            data = full.read_bytes()
+            if len(data) <= max_bytes:
+                return data.decode("utf-8", errors="replace")
+            # Truncate without splitting a multi-byte character
+            truncated = data[:max_bytes]
+            while truncated:
+                try:
+                    return truncated.decode("utf-8") + "\n... (truncated)"
+                except UnicodeDecodeError:
+                    truncated = truncated[:-1]
+            return ""
+        except (OSError, ValueError):
+            return ""
+
     # ---- Public API ----
 
     async def chat_stream(
@@ -92,22 +117,38 @@ class ChatService:
                     f"[{i}] 来源: {src}\n标题: {title}\n{text}"
                 )
             context = overview + "\n\n---\n\n" + "\n\n---\n\n".join(context_parts)
+
+            # Step 2.5: Read actual source code for each unique source path
+            loop = asyncio.get_running_loop()
+            source_parts = []
+            seen_sources = set()
+            for r in retrieved:
+                src = r.get("source", "")
+                if not src or src in seen_sources:
+                    continue
+                seen_sources.add(src)
+                code = await loop.run_in_executor(None, self._read_source, self.repo_path, src)
+                if code:
+                    source_parts.append(f"### 源代码: {src}\n```\n{code}\n```")
+            if source_parts:
+                source_context = "\n\n---\n\n".join(source_parts[:5])  # at most 5 source files to save budget
+                context += "\n\n---\n\n**相关源代码**：\n\n" + source_context
         else:
             context = "（未找到相关 Wiki 文档，以下回答基于通用知识，可能不够准确，建议运行代码分析以获取更精准的结果）"
 
         # Step 3: Build system prompt
         system_prompt = f"""你是 Code Wiki 智能助手，帮助用户理解项目代码。
 
-**项目文档概览已在上方列出** — 它展示了项目的模块结构。每篇文档都标注了来源文件路径。
-回答问题时，从提供的 Wiki 文档中查找相关信息并综合回答。如果文档信息不完整，可以结合代码常识补充，但要说明哪些是文档中有的、哪些是推断的。
+上方提供了 **Wiki 文档** 和 **相关源代码**。Wiki 是 AI 生成的代码分析，源代码是项目原始文件。
+回答问题时，优先参考 Wiki 文档了解高层逻辑，再结合源代码确认具体实现细节。如果信息不完整，可以结合编程常识补充，但要说明哪些来自项目文件、哪些是推断的。
 
 **要求**：
 - 引用代码位置时使用 [src:path:line] 格式
 - 用中文回答，简洁专业，直接给出答案
 - **禁止重复或转述用户的问题**，直接回答
-- 回答末尾列出参考的文档来源
+- 回答末尾列出参考的文档和文件来源
 
-**Wiki 文档内容**：
+**上下文**：
 {context}"""
 
         # Prepend a short instruction to the question to prevent model from echoing
