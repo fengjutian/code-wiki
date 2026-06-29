@@ -1,38 +1,77 @@
 // src-tauri/src/main.rs
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+/// Try to launch an editor via CLI command (checks PATH).
+fn try_editor_cli(name: &str, goto_target: &str) -> bool {
+    std::process::Command::new(name)
+        .args(["--goto", goto_target])
+        .spawn()
+        .is_ok()
+}
+
+/// On Windows, scan common install locations for editor executables
+/// and try to launch with `--goto`. Handles the case where the editor
+/// is installed but not in PATH and the protocol handler isn't registered.
+#[cfg(target_os = "windows")]
+fn try_editor_install_paths(goto_target: &str) -> bool {
+    let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let program_files = std::env::var("ProgramFiles").unwrap_or_default();
+
+    let candidates: &[&str] = &[
+        // Cursor
+        &format!("{}\\Programs\\Cursor\\Cursor.exe", local_appdata),
+        &format!("{}\\cursor\\Cursor.exe", local_appdata),
+        // VS Code
+        &format!("{}\\Programs\\Microsoft VS Code\\Code.exe", local_appdata),
+        &format!("{}\\Microsoft VS Code\\Code.exe", program_files),
+        // VS Code Insiders
+        &format!("{}\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe", local_appdata),
+    ];
+
+    for exe in candidates {
+        if std::path::Path::new(exe).exists() {
+            if std::process::Command::new(exe)
+                .args(["--goto", goto_target])
+                .spawn()
+                .is_ok()
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(not(target_os = "windows"))]
+fn try_editor_install_paths(_goto_target: &str) -> bool {
+    false
+}
+
 #[tauri::command]
 fn open_in_editor(path: String, line: u32) -> Result<(), String> {
-    // Try to open via VS Code / Cursor protocol
-    let vscode_url = format!("vscode://file/{}:{}", path, line);
-    let cursor_url = format!("cursor://file/{}:{}", path, line);
+    let goto_target = format!("{}:{}", path, line);
 
-    // On Windows, use the shell to open the URL
-    #[cfg(target_os = "windows")]
-    {
-        // Try Cursor first, then VS Code
-        if std::process::Command::new("cmd")
-            .args(["/c", "start", "", &cursor_url])
-            .spawn()
-            .is_ok()
-        {
-            return Ok(());
-        }
-        if std::process::Command::new("cmd")
-            .args(["/c", "start", "", &vscode_url])
-            .spawn()
-            .is_ok()
-        {
+    // ── 1. Try CLI in PATH (`code --goto`, `cursor --goto`, etc.) ──
+    for editor in &["cursor", "code", "code-insiders"] {
+        if try_editor_cli(editor, &goto_target) {
             return Ok(());
         }
     }
 
-    // macOS / Linux
-    #[cfg(not(target_os = "windows"))]
+    // ── 2. Windows: scan common install locations ──
+    if try_editor_install_paths(&goto_target) {
+        return Ok(());
+    }
+
+    // ── 3. Fallback: URL protocol handlers ──
+    let vscode_url = format!("vscode://file/{}:{}", path, line);
+    let cursor_url = format!("cursor://file/{}:{}", path, line);
+
+    #[cfg(target_os = "windows")]
     {
-        for editor in &["cursor", "code", "code-insiders"] {
-            if std::process::Command::new(editor)
-                .args(["--goto", &format!("{}:{}", path, line)])
+        for url in &[&vscode_url, &cursor_url] {
+            if std::process::Command::new("cmd")
+                .args(["/c", "start", "", url])
                 .spawn()
                 .is_ok()
             {
@@ -41,20 +80,33 @@ fn open_in_editor(path: String, line: u32) -> Result<(), String> {
         }
     }
 
-    // Fallback: open with system default
+    #[cfg(not(target_os = "windows"))]
+    {
+        for url in &[&vscode_url, &cursor_url] {
+            if std::process::Command::new("open")
+                .arg(url)
+                .spawn()
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    // ── 4. Last resort: open file with default app (no line navigation) ──
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
             .args(["/c", "start", "", &path])
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("无法打开文件: {}", e))?;
     }
     #[cfg(not(target_os = "windows"))]
     {
         std::process::Command::new("open")
             .arg(&path)
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("无法打开文件: {}", e))?;
     }
 
     Ok(())

@@ -1,9 +1,10 @@
 import { ThreadPrimitive, ComposerPrimitive, MessagePrimitive, useLocalRuntime, AssistantRuntimeProvider } from "@assistant-ui/react";
 import { SSEChatModelAdapter } from "@/lib/chat/sseAdapter";
-import ReactMarkdown from "react-markdown";
+import { MarkdownHooks } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { rehypePrettyCodePlugin } from "@/components/wiki/rehypePrettyCode";
 import { cn } from "@/lib/utils";
+import { Suspense } from "react";
 import type { ComponentProps } from "react";
 import type { TextMessagePartComponent } from "@assistant-ui/react";
 
@@ -105,12 +106,14 @@ export function StyledMessage() {
 
 const StyledMarkdownText: TextMessagePartComponent = ({ text }) => {
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypePrettyCodePlugin]}
-      className="prose prose-sm dark:prose-invert max-w-none"
-    >
-      {text}
-    </ReactMarkdown>
+    <Suspense fallback={<div className="animate-pulse h-3 bg-muted rounded" />}>
+      <MarkdownHooks
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypePrettyCodePlugin]}
+        className="prose prose-sm dark:prose-invert max-w-none"
+      >
+        {text}
+      </MarkdownHooks>
+    </Suspense>
   );
 };

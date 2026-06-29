@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, Suspense } from "react";
 import { useConfigStore } from "@/store/configStore";
 import Editor, { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-import ReactMarkdown from "react-markdown";
+import { MarkdownHooks } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sourceLinkRenderer } from "@/components/wiki/SourceLink";
 import rehypeSourceLinks from "@/components/wiki/rehypeSourceLinks";
@@ -130,7 +130,9 @@ export function CodeViewer() {
       {isMarkdown ? (
         <div className="flex-1 overflow-y-auto p-6">
           <article className="prose dark:prose-invert max-w-none text-sm">
-            <ReactMarkdown components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{codeContent || ""}</ReactMarkdown>
+            <Suspense fallback={<div className="animate-pulse h-4 bg-muted rounded" />}>
+            <MarkdownHooks components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{codeContent || ""}</MarkdownHooks>
+          </Suspense>
           </article>
         </div>
       ) : (

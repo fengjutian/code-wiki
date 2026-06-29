@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useCallback, memo, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, memo, useRef, Suspense } from "react";
 import { useConfigStore } from "@/store/configStore";
 import type { WikiTreeNode } from "@/lib/types";
-import ReactMarkdown from "react-markdown";
+import { MarkdownHooks } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sourceLinkRenderer } from "@/components/wiki/SourceLink";
 import { MermaidRenderer } from "@/components/shared/MermaidRenderer";
@@ -74,7 +74,9 @@ export function WikiPanel() {
   const renderedMarkdown = useMemo(
     () => (
       <article className="prose dark:prose-invert max-w-none text-sm">
-        <ReactMarkdown components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{wikiContent}</ReactMarkdown>
+        <Suspense fallback={<div className="animate-pulse h-4 bg-muted rounded" />}>
+          <MarkdownHooks components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{wikiContent}</MarkdownHooks>
+        </Suspense>
       </article>
     ),
     [wikiContent, renderer]

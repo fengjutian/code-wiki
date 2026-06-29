@@ -13,16 +13,30 @@ interface SourceLinkProps {
  * 1. Try Tauri's open_in_editor command (opens file in system editor at line)
  * 2. Fallback: open file:// URL (works in browser dev mode)
  */
+/**
+ * Join repoPath and a relative file path into an absolute path.
+ * Normalizes backslashes to forward slashes (Tauri/VS Code handle both on all OS).
+ */
+function resolveAbsolutePath(repoPath: string | undefined, relativePath: string): string {
+  if (!repoPath) return relativePath;
+  // Strip trailing slashes from repoPath, normalize to forward slashes
+  const base = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
+  return `${base}/${relativePath}`;
+}
+
 export function SourceLink({ file, line, repoPath }: SourceLinkProps) {
   const handleClick = useCallback(
     async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
+      // Resolve relative → absolute path using repoPath
+      const absolutePath = resolveAbsolutePath(repoPath, file);
+
       // Try Tauri command first
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("open_in_editor", { path: file, line });
+        await invoke("open_in_editor", { path: absolutePath, line });
         return;
       } catch {
         // Tauri not available — try file:// fallback
@@ -43,7 +57,7 @@ export function SourceLink({ file, line, repoPath }: SourceLinkProps) {
                  bg-blue-50 dark:bg-blue-900/30 rounded 
                  hover:bg-blue-100 dark:hover:bg-blue-900/50
                  transition-colors cursor-pointer font-mono"
-      title={`打开 ${file}:${line}`}
+      title={`打开 ${resolveAbsolutePath(repoPath, file)}:${line}`}
     >
       [→ {file}:{line}]
     </button>
