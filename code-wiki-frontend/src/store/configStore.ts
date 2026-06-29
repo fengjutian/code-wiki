@@ -280,11 +280,15 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       },
     });
     try {
-      await fetch("/api/scan", {
+      const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode, files: files || [] }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `请求失败 (${res.status})`);
+      }
       // Start polling fallback — SSE is the primary channel, but if it drops,
       // polling /api/status every 2s will keep the UI updated.
       startStatusPolling();

@@ -97,7 +97,7 @@ class DeepSeekProvider(LLMProvider):
         api_key: str,
         model: str = "deepseek-v4-flash",
         base_url: str = "https://api.deepseek.com",
-        timeout: float = 60.0,
+        timeout: float = 30.0,
         max_retries: int = 3,
         requests_per_minute: int = 100,
     ) -> None:

@@ -50,6 +50,7 @@ router = APIRouter()
 
 # Cancel flag for in-flight scans
 _scan_cancel_event: asyncio.Event = asyncio.Event()
+_scan_task: asyncio.Task | None = None  # Track running scan for immediate cancellation
 
 
 class ScanRequest(BaseModel):
@@ -93,20 +94,29 @@ async def trigger_scan(request: ScanRequest):
         logger.error(f"Scanner init failed: {e}")
         raise HTTPException(status_code=400, detail=f"扫描初始化失败: {e}")
 
-    # Clear any previous cancel signal
+    # Clear any previous cancel signal and task reference
     _scan_cancel_event.clear()
+    _scan_task = None
 
     # Use asyncio.create_task instead of BackgroundTasks for proper async execution
     logger.info(f"Scan accepted, launching background task (mode={request.mode})")
     # Pass pre-scanned files to avoid re-scanning
-    asyncio.create_task(_run_scan(repo_path, request.mode, pre_scanned if request.mode == "full" else (request.files or [])))
+    task = asyncio.create_task(_run_scan(repo_path, request.mode, pre_scanned if request.mode == "full" else (request.files or [])))
+    _scan_task = task
     return {"status": "accepted", "mode": request.mode}
 
 
 @router.post("/scan/cancel")
 async def cancel_scan():
     """Cancel the currently running scan."""
+    global _scan_task
     _scan_cancel_event.set()
+    # Immediately cancel the asyncio task — injects CancelledError into
+    # the current HTTP request / sleep, not just rely on flag polling.
+    if _scan_task is not None and not _scan_task.done():
+        _scan_task.cancel()
+        logger.info("Scan task cancelled via asyncio.Task.cancel()")
+        _scan_task = None
     update_status(status="cancelling", current_step="正在取消...")
     broadcast("progress", {
         "status": _analysis_state.get("status", "cancelling"),
@@ -315,6 +325,14 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
             processed_modules=len(py_files),
         )
 
+    except asyncio.CancelledError:
+        logger.info("Scan pipeline cancelled via task cancellation")
+        _push_status(
+            status="cancelled",
+            progress=1.0,
+            current_step="已取消",
+            finished_at=datetime.now().isoformat(),
+        )
     except Exception as e:
         logger.exception(f"Scan pipeline failed: {e}")
         _push_status(
@@ -323,6 +341,10 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
             current_step="",
             error_message=str(e),
         )
+    finally:
+        global _scan_task
+        if _scan_task is not None:
+            _scan_task = None
 
 
 def _save_analysis_results(

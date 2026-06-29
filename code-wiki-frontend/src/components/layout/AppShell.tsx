@@ -25,7 +25,7 @@ export function AppShell() {
       setTimeout(() => setToast(null), 4000);
     } else if (prevStatus.current !== s && s === "error") {
       const msg = analysisStatus.errorMessage || "分析失败";
-      setToast();
+      setToast(`❌ ${msg}`);
       setTimeout(() => setToast(null), 6000);
     }
     prevStatus.current = s;
