@@ -51,7 +51,15 @@ class PromptBuilder:
         remaining = self._budget - self._used
         if remaining <= 0:
             return self
-        parts: list[str] = ["\n\n**附加文件内容**：\n\n"]
+
+        # Build a prominent file manifest first
+        file_names = [f.get("name", "?") for f in files]
+        manifest = "**用户附加了以下本地文件，请基于这些文件内容回答问题：**\n" + \
+                   "\n".join(f"- `{n}`" for n in file_names) + \
+                   "\n\n---\n\n**文件内容详情**：\n\n"
+        parts: list[str] = [manifest]
+        remaining -= len(manifest)
+
         for f in files:
             name = f.get("name", "unknown")
             content = f.get("content", "")
@@ -59,7 +67,11 @@ class PromptBuilder:
             header = f"### 📄 {name}\n"
             max_content = min(len(content), remaining - len(header) - 50)
             if max_content <= 0:
-                break
+                header_only = f"### 📄 {name}\n(内容过长，已省略)\n"
+                self._used += len(header_only)
+                parts.append(header_only)
+                remaining = self._budget - self._used
+                continue
             part = header + content[:max_content]
             if len(content) > max_content:
                 part += "\n... (truncated)"
@@ -234,19 +246,32 @@ class ChatService:
                 source_codes.append(f"### 源代码: {src}\n```\n{code}\n```")
 
         # Step 3: Build messages with token budget via PromptBuilder
-        if retrieved or (file_context and len(file_context) > 0):
-            if retrieved:
+        has_files = file_context and len(file_context) > 0
+        if retrieved or has_files:
+            if retrieved and has_files:
                 system_prompt = (
                     "你是 Code Wiki 智能助手，帮助用户理解项目代码。\n"
-                    "上方有从代码库中按函数/类/方法提取的相关代码片段，以及用户附加的本地文件。"
-                    "优先参考代码实现逻辑和附加文件内容，"
+                    "上方有：1) 从代码库中提取的相关代码片段；2) 用户附加的本地文件（含完整内容清单）。"
+                    "优先参考这些材料回答，结合编程常识补充。\n"
+                    "当用户询问有哪些文件时，直接从文件清单中列出。\n"
+                    "要求：引用代码用 [src:path:line] 格式；引用文件用 `文件名`；中文简洁回答；不重复问题；末尾列出参考来源。"
+                )
+            elif retrieved:
+                system_prompt = (
+                    "你是 Code Wiki 智能助手，帮助用户理解项目代码。\n"
+                    "上方有从代码库中按函数/类/方法提取的相关代码片段。优先参考代码实现逻辑，"
                     "结合编程常识回答。信息不完整时可补充说明，但要标明来源。\n"
                     "要求：引用代码用 [src:path:line] 格式；中文简洁回答；不重复问题；末尾列出参考来源。"
                 )
-            else:
+            else:  # has_files only
                 system_prompt = (
-                    "你是 Code Wiki 智能助手。以下回答基于用户附加的本地文件内容：\n"
-                    "要求：参考附加文件内容回答问题；中文简洁回答；不重复问题。"
+                    "你是 Code Wiki 智能助手。\n"
+                    "上方列出了用户附加的本地文件及其完整内容。你必须基于这些文件内容回答，不要使用外部知识。\n"
+                    "回答时请按以下流程：\n"
+                    "1. 先简要分析附加文件的内容（文件用途、关键结构、主要函数/类等）\n"
+                    "2. 再针对用户的具体问题，从文件内容中提取答案\n"
+                    "当用户询问文件列表时，直接从文件清单列出；询问代码问题时引用具体文件内容。\n"
+                    "要求：中文简洁回答；引用文件用 `文件名` 标明；不编造不存在的内容。"
                 )
             builder = (
                 PromptBuilder()
