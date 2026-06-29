@@ -41,7 +41,7 @@ export function ChatPanel() {
       setFiles((prev) => {
         // Replace only the files from this watched dir, keep others
         const others = prev.filter((f) => !f.name.startsWith(dirName + "/"));
-        const merged = [...others, ...newFiles].slice(0, 5);
+        const merged = [...others, ...newFiles].slice(0, 20);
         setAttachedFiles(merged);
         return merged;
       });
@@ -73,7 +73,7 @@ export function ChatPanel() {
         }
       }
       if (newFiles.length > 0) {
-        const merged = [...files, ...newFiles].slice(0, 5); // max 5 files
+        const merged = [...files, ...newFiles].slice(0, 20); // max 20 files
         setFiles(merged);
         setAttachedFiles(merged);
       }
@@ -132,7 +132,7 @@ export function ChatPanel() {
         content: f.content,
       }));
       setFiles((prev) => {
-        const merged = [...prev, ...newFiles].slice(0, 5);
+        const merged = [...prev, ...newFiles].slice(0, 20);
         setAttachedFiles(merged);
         return merged;
       });

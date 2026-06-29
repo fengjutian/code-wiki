@@ -19,10 +19,11 @@ from services.embedder import Embedder
 # ---------------------------------------------------------------------------
 # Token budget (approximate: 1 char ≈ 0.25 token for CJK, ≈ 0.3 for English)
 # ---------------------------------------------------------------------------
-MAX_CONTEXT_CHARS = 16_000   # ~4000-5000 tokens
+MAX_CONTEXT_CHARS = 48_000  # ~12000 tokens — enough for many file previews
 MAX_WIKI_CHUNK_CHARS = 1000
 MAX_SOURCE_CHARS = 1500
 MAX_SOURCE_FILES = 3
+MAX_FILE_PREVIEW_CHARS = 2000  # per-file preview in chat context
 DEFAULT_TOP_K = 5
 
 
@@ -44,36 +45,59 @@ class PromptBuilder:
         self._used += len(text)
         return self
 
-    def add_file_context(self, files: list[dict]) -> "PromptBuilder":
-        """Add user-attached local file contents as context."""
+    def add_file_context(self, files: list[dict], question: str = "") -> "PromptBuilder":
+        """Add user-attached local file contents as context.
+        If there are many files, only include full content of the most relevant ones
+        based on keyword matching with the question. All file names are always included."""
         if not files:
             return self
         remaining = self._budget - self._used
         if remaining <= 0:
             return self
 
-        # Build a prominent file manifest first
+        # Build file manifest (always include all names)
         file_names = [f.get("name", "?") for f in files]
         manifest = "**用户附加了以下本地文件，请基于这些文件内容回答问题：**\n" + \
-                   "\n".join(f"- `{n}`" for n in file_names) + \
-                   "\n\n---\n\n**文件内容详情**：\n\n"
+                   "\n".join(f"- `{n}`" for n in file_names) + "\n"
         parts: list[str] = [manifest]
         remaining -= len(manifest)
 
-        for f in files:
+        # If many files, select most relevant ones for full content
+        MAX_FULL_CONTENT = 10
+        if len(files) > MAX_FULL_CONTENT and question:
+            # Simple keyword relevance scoring
+            keywords = set(question.lower().split())
+            scored = []
+            for f in files:
+                name = f.get("name", "").lower()
+                content_preview = f.get("content", "")[:5000].lower()
+                score = sum(1 for kw in keywords if kw in name) * 3 + \
+                        sum(1 for kw in keywords if kw in content_preview)
+                scored.append((score, f))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            # Take top MAX_FULL_CONTENT + ensure at least some variety
+            selected = [f for _, f in scored[:MAX_FULL_CONTENT]]
+            # Always include files with 0-length content too
+            has_content = [f for f in selected if f.get("content", "")]
+            no_content = [f for f in selected if not f.get("content", "")]
+            selected = has_content + no_content
+        else:
+            selected = files
+
+        parts.append("\n\n---\n\n**文件内容预览**：\n\n")
+        for f in selected:
             name = f.get("name", "unknown")
             content = f.get("content", "")
-            # Truncate each file to fit budget
             header = f"### 📄 {name}\n"
-            max_content = min(len(content), remaining - len(header) - 50)
-            if max_content <= 0:
-                header_only = f"### 📄 {name}\n(内容过长，已省略)\n"
+            preview_len = min(len(content), MAX_FILE_PREVIEW_CHARS, remaining - len(header) - 50)
+            if preview_len <= 0:
+                header_only = f"### 📄 {name}\n(已省略)\n"
                 self._used += len(header_only)
                 parts.append(header_only)
                 remaining = self._budget - self._used
                 continue
-            part = header + content[:max_content]
-            if len(content) > max_content:
+            part = header + content[:preview_len]
+            if len(content) > preview_len:
                 part += "\n... (truncated)"
             self._used += len(part)
             parts.append(part)
@@ -279,7 +303,7 @@ class ChatService:
             builder = (
                 PromptBuilder()
                 .add_system(system_prompt)
-                .add_file_context(file_context or [])
+                .add_file_context(file_context or [], question)
                 .add_context(retrieved, source_codes)
                 .add_history(history, max_turns=6)
                 .add_question(question)

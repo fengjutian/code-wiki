@@ -62,8 +62,7 @@ export class SSEChatModelAdapter implements ChatModelAdapter {
       }));
 
     // POST to backend
-    const fileContext = _attachedFiles;
-    _attachedFiles = []; // clear after use
+    const fileContext = [..._attachedFiles]; // shallow copy
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

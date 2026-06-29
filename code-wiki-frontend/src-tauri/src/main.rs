@@ -171,9 +171,9 @@ fn read_directory_files(dir_path: String) -> Result<Vec<DirFile>, String> {
         return Err("路径不是目录".into());
     }
 
-    let max_files: usize = 50;
+    let max_files: usize = 200;
     let max_file_bytes: u64 = 150 * 1024;   // per file
-    let max_total_bytes: u64 = 500 * 1024;  // total
+    let max_total_bytes: u64 = 2 * 1024 * 1024;  // 2MB total
 
     let mut results: Vec<DirFile> = Vec::new();
     let mut total_bytes: u64 = 0;
@@ -193,7 +193,8 @@ fn read_directory_files(dir_path: String) -> Result<Vec<DirFile>, String> {
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             return text_exts.contains(&ext.to_lowercase().as_str());
         }
-        false
+        // Files without extension (Dockerfile, Makefile, LICENSE, etc.) — treat as text
+        true
     }
 
     fn walk(
@@ -217,9 +218,15 @@ fn read_directory_files(dir_path: String) -> Result<Vec<DirFile>, String> {
             }
             let path = entry.path();
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
-            // Skip hidden files/dirs
+            // Skip hidden directories, but allow hidden files with text extensions
             if name.starts_with('.') {
-                continue;
+                if path.is_dir() {
+                    continue; // skip .git, .code-wiki, etc.
+                }
+                // Allow hidden text files (.env, .gitignore, .dockerignore)
+                if !is_text_file(&path, text_exts) {
+                    continue;
+                }
             }
             if path.is_dir() {
                 walk(&path, root, results, total_bytes, max_files, max_file_bytes, max_total_bytes, text_exts)?;
