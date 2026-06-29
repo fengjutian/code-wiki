@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sourceLinkRenderer } from "@/components/wiki/SourceLink";
 import rehypeSourceLinks from "@/components/wiki/rehypeSourceLinks";
+import { rehypePrettyCodePlugin } from "@/components/wiki/rehypePrettyCode";
 
 // Import Monaco workers via Vite's ?worker syntax so they are bundled correctly
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
@@ -129,7 +130,7 @@ export function CodeViewer() {
       {isMarkdown ? (
         <div className="flex-1 overflow-y-auto p-6">
           <article className="prose dark:prose-invert max-w-none text-sm">
-            <ReactMarkdown components={renderer} rehypePlugins={[rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{codeContent || ""}</ReactMarkdown>
+            <ReactMarkdown components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{codeContent || ""}</ReactMarkdown>
           </article>
         </div>
       ) : (

@@ -91,16 +91,30 @@ body {
   @apply max-w-none;
 }
 
+/* Code blocks: Shiki (rehype-pretty-code) sets background & color via inline styles.
+   Keep structural styles; theme colors come from the Shiki theme. */
 .prose pre {
-  @apply bg-secondary text-secondary-foreground rounded-lg p-4 overflow-x-auto;
+  @apply rounded-lg p-4 overflow-x-auto;
 }
 
+/* Inline code (backtick) — unthemed by Shiki, use app tokens */
 .prose code {
   @apply bg-secondary text-secondary-foreground rounded px-1 py-0.5 text-sm;
 }
 
+/* Shiki code inside pre — transparent, no extra padding */
 .prose pre code {
-  @apply bg-transparent p-0;
+  @apply bg-transparent p-0 text-sm;
+}
+
+/* Shiki line-level elements */
+.prose pre code [data-line] {
+  @apply px-4 -mx-4 border-l-2 border-l-transparent;
+}
+
+/* Highlighted lines via rehype-pretty-code meta comments */
+.prose pre code [data-highlighted-line] {
+  @apply border-l-primary bg-primary/10;
 }
 
 /* Mermaid diagram container */

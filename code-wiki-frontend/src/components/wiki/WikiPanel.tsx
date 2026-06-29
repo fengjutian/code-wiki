@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { sourceLinkRenderer } from "@/components/wiki/SourceLink";
 import { MermaidRenderer } from "@/components/shared/MermaidRenderer";
 import rehypeSourceLinks from "@/components/wiki/rehypeSourceLinks";
+import { rehypePrettyCodePlugin } from "@/components/wiki/rehypePrettyCode";
 
 export function WikiPanel() {
   const wikiTree = useConfigStore((s) => s.wikiTree);
@@ -73,7 +74,7 @@ export function WikiPanel() {
   const renderedMarkdown = useMemo(
     () => (
       <article className="prose dark:prose-invert max-w-none text-sm">
-        <ReactMarkdown components={renderer} rehypePlugins={[rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{wikiContent}</ReactMarkdown>
+        <ReactMarkdown components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{wikiContent}</ReactMarkdown>
       </article>
     ),
     [wikiContent, renderer]
