@@ -42,12 +42,19 @@ def get_config() -> dict:
 def get_wiki_path() -> Path:
     """Return the wiki output directory.
     
-    If wiki_path is explicitly configured, create .code-wiki inside it.
+    If wiki_path is explicitly configured, use it (or create .code-wiki inside it).
+    If it already ends with '.code-wiki' or is the exact wiki dir, use it as-is.
     Otherwise defaults to {repo_path}/.code-wiki/.
     """
     explicit = _config.get("wiki_path", "")
     if explicit:
-        return Path(explicit) / ".code-wiki"
+        p = Path(explicit)
+        # Get last path component (handles both / and \ cross-platform)
+        final = explicit.rstrip("/\\").split("/")[-1].rsplit("\\")[-1]
+        if final == ".code-wiki":
+            return p
+        # The path is a parent directory; create .code-wiki inside it
+        return p / ".code-wiki"
     repo = _config.get("repo_path", "")
     if repo:
         return Path(repo) / ".code-wiki"
