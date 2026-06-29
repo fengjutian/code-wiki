@@ -35,7 +35,7 @@ export function StyledThread({ className, ...props }: ComponentProps<typeof Thre
       className={cn("flex flex-col h-full bg-background", className)}
       {...props}
     >
-      <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <ThreadPrimitive.Viewport className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
         <ThreadPrimitive.Empty>
           <div className="text-center mt-8">
             <p className="text-sm text-muted-foreground">

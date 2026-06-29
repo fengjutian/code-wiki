@@ -162,7 +162,7 @@ export function ChatPanel() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col min-h-0 h-full bg-background">
       {/* Header */}
       <div className="border-b border-border shrink-0">
         <div className="h-10 flex items-center px-4 gap-2">
