@@ -15,7 +15,7 @@ from config import _config, get_wiki_path
 from services.scanner import Scanner
 from services.analyzer import Analyzer
 from services.dependency_graph import DependencyGraph
-from services.wiki_generator import WikiGenerator
+from services.wiki import WikiGenerator
 from services.embedder import Embedder
 from routes.status import _analysis_state, update_status
 from routes.events import broadcast
