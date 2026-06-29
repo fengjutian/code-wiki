@@ -1,0 +1,36 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="108" fill="#0F2D6B"/>
+
+  <!-- Code -->
+  <path
+    d="M170 215L125 256L170 297"
+    stroke="white"
+    stroke-width="22"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+
+  <path
+    d="M342 215L387 256L342 297"
+    stroke="white"
+    stroke-width="22"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+
+  <path
+    d="M280 195L232 317"
+    stroke="white"
+    stroke-width="22"
+    stroke-linecap="round"/>
+
+  <!-- Wiki -->
+  <path
+    d="M118 355H394"
+    stroke="white"
+    stroke-width="20"
+    stroke-linecap="round"/>
+
+  <path
+    d="M256 355V390L282 374L308 390V355"
+    fill="white"/>
+</svg>

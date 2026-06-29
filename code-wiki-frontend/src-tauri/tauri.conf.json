@@ -1,0 +1,28 @@
+{
+  "productName": "Code Wiki",
+  "version": "0.1.0",
+  "identifier": "com.codewiki.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Code Wiki",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "plugins": {
+    "shell": {}
+  }
+}

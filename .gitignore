@@ -1,0 +1,31 @@
+.code-wiki
+
+# Rust
+target/
+
+# Windows
+*.pdb
+
+# Cargo
+Cargo.lock
+
+# Node
+node_modules/
+
+# React
+dist/
+
+# Python
+.venv/
+venv/
+__pycache__/
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Cache
+.cache/
