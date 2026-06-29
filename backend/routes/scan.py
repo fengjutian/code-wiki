@@ -269,6 +269,7 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
             wiki_pages = await wiki_gen.generate_all(
                 modules,
                 dep_graph.stats,
+                dep_graph=dep_graph,
                 cancel_check=lambda: _scan_cancel_event.is_set(),
                 on_progress=lambda done, total: _push_status(
                     status="cancelling" if _scan_cancel_event.is_set() else "generating",

@@ -254,69 +254,181 @@ def _build_class_mermaid(data: dict) -> str:
 def _build_sequence_mermaid(data: dict, fqn: str) -> str:
     """Generate a sequence diagram for a given fully-qualified name.
 
-    Shows how the analysis pipeline processes this module/file.
+    Shows the actual call/dependency chain from the analyzed code:
+    who calls this module → what this module does → what it calls downstream.
     """
     modules = data.get("modules", {})
-    target_module = None
+    dep_graph = data.get("dependency_graph", {})
+    edge_list = dep_graph.get("edges", [])
 
-    # Try to find the module by FQN
+    # Normalize FQN: convert dots to path separators
     norm_fqn = fqn.replace(".", "/")
+
+    # Find the target module(s)
+    target_paths = []
     for path in modules:
-        if norm_fqn in path.replace("\\", "/") or fqn in path:
-            target_module = path
-            break
+        if norm_fqn in path.replace("\\", "/"):
+            target_paths.append(path)
+
+    if not target_paths:
+        # Fallback: show overall pipeline
+        return _build_pipeline_sequence(data)
+
+    target = target_paths[0]
+    target_label = target.replace("\\", "/")
+
+    # Build adjacency: who imports whom
+    # "A → B" means A imports B
+    calls: dict[str, list[str]] = {}          # who_calls[caller] = [callees]
+    called_by: dict[str, list[str]] = {}       # called_by[callee] = [callers]
+    for edge in edge_list:
+        src = edge.get("source", "")
+        for tgt in edge.get("targets", []):
+            calls.setdefault(src, []).append(tgt)
+            called_by.setdefault(tgt, []).append(src)
 
     lines = ["sequenceDiagram"]
-    lines.append("    participant Client as Client")
-    lines.append("    participant Scanner as Scanner")
-    lines.append("    participant Analyzer as Analyzer")
-    lines.append("    participant DepGraph as DependencyGraph")
-    lines.append("    participant WikiGen as WikiGenerator")
-    lines.append("    participant Embedder as Embedder")
+    participants: dict[str, str] = {}
+    _ensure_participant("Client", "Client", participants)
+    _ensure_participant("Target", "Module", participants)
 
-    # Full pipeline flow
-    lines.append("")
-    lines.append("    Client->>Scanner: POST /api/scan")
-    lines.append("    Scanner->>Scanner: scan filesystem")
-    lines.append("    Scanner-->>Client: scan results")
+    # Write participant declarations
+    # Collect: callers (up to 3), target, callees (up to 5)
+    callers = called_by.get(target, [])[:3]
+    callees = calls.get(target, [])[:5]
 
-    if target_module:
-        label = target_module.replace("\\", "/")
-        lines.append("")
-        lines.append(f"    Note over Scanner,Analyzer: Processing: {label}")
-        lines.append(f"    Scanner->>Analyzer: analyze_file({label})")
+    for cp in callers:
+        alias = _module_alias(cp)
+        _ensure_participant(alias, cp.replace("\\", "/"), participants)
 
-        mod = modules[target_module]
-        for cls in mod.get("classes", []):
-            cname = cls.get("name", "")
-            lines.append(f"    Analyzer->>Analyzer: parse class {cname}")
-            for method in cls.get("methods", []):
-                mname = method.get("name", "?")
-                lines.append(f"    Analyzer->>Analyzer:   method {mname}()")
+    _ensure_participant("Target", target_label, participants)
 
-        lines.append(f"    Analyzer-->>Scanner: ModuleInfo for {label}")
-    else:
-        lines.append("")
-        lines.append(f"    Note over Scanner,Analyzer: Target: {fqn}")
-        lines.append("    Scanner->>Analyzer: analyze files")
+    for cp in callees:
+        alias = _module_alias(cp)
+        _ensure_participant(alias, cp.replace("\\", "/"), participants)
+
+    # Add participant lines
+    for alias, label in participants.items():
+        lines.append(f"    participant {alias} as {_sanitize_label(label)}")
 
     lines.append("")
-    lines.append("    Scanner->>DepGraph: build dependency graph")
-    lines.append("    DepGraph-->>Scanner: dependency edges")
 
-    lines.append("")
-    lines.append("    Scanner->>WikiGen: generate wiki pages")
-    lines.append("    WikiGen->>WikiGen: call LLM API")
-    lines.append("    WikiGen-->>Scanner: wiki markdown")
+    # ── Call chain ──
+    # Upstream: callers call target
+    for i, cp in enumerate(callers):
+        calias = _module_alias(cp)
+        cp_mod = modules.get(cp, {})
+        # Pick a representative class or function
+        cp_entities = _pick_call_entities(cp_mod)
+        if cp_entities:
+            for ent_name in cp_entities[:2]:
+                lines.append(f"    {calias}->>+Target: {ent_name}()")
+        else:
+            lines.append(f"    {calias}->>+Target: 调用")
+        if i == len(callers) - 1:
+            lines.append(f"    Note over Target: {target_label}")
 
-    lines.append("")
-    lines.append("    Scanner->>Embedder: rebuild vector index")
-    lines.append("    Embedder-->>Scanner: index done")
+    # Target's internal processing
+    target_mod = modules.get(target, {})
+    for cls in target_mod.get("classes", [])[:3]:
+        cname = cls.get("name", "")
+        pub_methods = [
+            m.get("name", "?")
+            for m in cls.get("methods", [])
+            if not m.get("name", "").startswith("_")
+        ][:3]
+        if pub_methods:
+            for mn in pub_methods:
+                lines.append(f"    Target->>Target: {cname}.{mn}()")
+        else:
+            lines.append(f"    Target->>Target: {cname} processing")
 
-    lines.append("")
-    lines.append("    Scanner-->>Client: analysis complete")
+    # Public functions (not methods)
+    for fn in target_mod.get("functions", [])[:3]:
+        fname = fn.get("name", "?")
+        if not fname.startswith("_"):
+            lines.append(f"    Target->>Target: {fname}()")
+
+    # Downstream: target calls callees
+    for i, cp in enumerate(callees):
+        calias = _module_alias(cp)
+        cp_mod = modules.get(cp, {})
+        cp_entities = _pick_call_entities(cp_mod)
+        if cp_entities:
+            lines.append(f"    Target->>+{calias}: {cp_entities[0]}()")
+            for ent_name in cp_entities[1:3]:
+                lines.append(f"    {calias}->>{calias}: {ent_name}()")
+            lines.append(f"    {calias}-->>-Target: return")
+        else:
+            lines.append(f"    Target->>{calias}: 调用")
+            lines.append(f"    {calias}-->>Target: return")
+
+    # Return to callers
+    for cp in reversed(callers):
+        calias = _module_alias(cp)
+        lines.append(f"    Target-->>-{calias}: return")
+
+    lines.append(f"    Note over Client,Target: 关注模块: {target_label}")
 
     return "\n".join(lines)
+
+
+def _build_pipeline_sequence(data: dict) -> str:
+    """Build a high-level Code Wiki analysis pipeline sequence (fallback)."""
+    modules_count = len(data.get("modules", {}))
+    dep_graph = data.get("dependency_graph", {})
+    edges_count = dep_graph.get("stats", {}).get("total_edges", 0)
+
+    lines = [
+        "sequenceDiagram",
+        "    participant User as User",
+        "    participant Code as Code Wiki Backend",
+        "    participant LLM as LLM API",
+        "",
+        f"    Note over User,LLM: Analyzed {modules_count} modules, {edges_count} dependency edges",
+        "    User->>+Code: 触发分析",
+        "    Code->>Code: 扫描文件系统",
+        "    Code->>Code: AST 解析 & 构建依赖图",
+        "    Code->>+LLM: 生成 Wiki 文档",
+        "    LLM-->>-Code: Markdown Wiki",
+        "    Code->>Code: 构建向量索引",
+        "    Code-->>-User: 分析完成",
+        "",
+        "    Note over User,LLM: 选择具体模块查看详细调用链时序图",
+    ]
+    return "\n".join(lines)
+
+
+def _module_alias(path: str) -> str:
+    """Create a short Mermaid-safe alias from a module path."""
+    norm = path.replace("\\", "/")
+    parts = norm.split("/")
+    if len(parts) >= 2:
+        return parts[-2][:4] + "_" + parts[-1].rsplit(".", 1)[0].replace("-", "_")
+    return norm.rsplit(".", 1)[0].replace("/", "_").replace("-", "_")[:12]
+
+
+def _ensure_participant(
+    alias: str, label: str, participants: dict
+) -> None:
+    """Add participant if alias is unique."""
+    if alias not in participants:
+        participants[alias] = label
+
+
+def _pick_call_entities(mod: dict) -> list:
+    """Pick representative public entities for call-chain display."""
+    entities = []
+    for cls in mod.get("classes", []):
+        for m in cls.get("methods", []):
+            name = m.get("name", "")
+            if not name.startswith("_") and name not in entities:
+                entities.append(f"{cls.get('name', '?')}.{name}")
+    for fn in mod.get("functions", []):
+        name = fn.get("name", "")
+        if not name.startswith("_") and name not in entities:
+            entities.append(name)
+    return entities[:5]
 
 
 # ── Placeholder fallback ──────────────────────────────────────────────────

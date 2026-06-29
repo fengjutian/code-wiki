@@ -149,10 +149,89 @@ class MarkdownBuilder:
             "",
             "参见 [架构图](diagrams/architecture.mmd) 和 [依赖图](diagrams/dependencies.mmd)。",
             "",
+            "## 综合架构文档",
+            "",
+            "参见 [项目架构综合文档](architecture.md)（AI 生成的跨模块架构分析）。",
+            "",
             "***",
             "*由 Code Wiki 自动生成*",
         ]
 
+        return "\n".join(lines)
+
+    # ---- Architecture overview (non-LLM fallback) ----
+
+    def build_architecture_overview(
+        self,
+        modules: Dict[str, ModuleInfo],
+        dep_stats: dict,
+    ) -> str:
+        """Generate a stats-based architecture overview without LLM (fallback)."""
+        lines: List[str] = [
+            "# 项目架构综合文档",
+            "",
+            "> ⚠️ 未配置 LLM 或 LLM 生成失败，以下为基于模块统计的架构概览。",
+            "",
+            "## 项目统计",
+            "",
+        ]
+
+        total_classes = sum(len(m.classes) for m in modules.values())
+        total_funcs = sum(len(m.functions) for m in modules.values())
+        total_ifaces = sum(len(m.interfaces) for m in modules.values())
+        total_comps = sum(len(m.components) for m in modules.values())
+
+        lines += [
+            "| 指标 | 数量 |",
+            "|------|------|",
+            f"| 模块总数 | {len(modules)} |",
+            f"| 类 | {total_classes} |",
+            f"| 函数 | {total_funcs} |",
+            f"| 接口/类型 | {total_ifaces} |",
+            f"| React 组件 | {total_comps} |",
+            f"| 依赖边 | {dep_stats.get('total_edges', 0)} |",
+            f"| 独立模块 | {dep_stats.get('isolated_modules', 0)} |",
+            f"| 最大依赖深度 | {dep_stats.get('max_depth', 0)} |",
+            "",
+        ]
+
+        # Group by role
+        from .prompt_builder import PromptBuilder, role_label
+        role_groups: Dict[str, List[str]] = {}
+        for path in sorted(modules.keys()):
+            role = PromptBuilder._classify_role(path)
+            role_groups.setdefault(role, []).append(path)
+
+        lines += ["## 架构分层", ""]
+        role_order = [
+            "api_entry", "business_logic", "data_model",
+            "utility", "configuration", "ui_component", "ui_page",
+            "hook", "state_management", "middleware", "test", "general",
+        ]
+        for role in role_order:
+            paths = role_groups.get(role, [])
+            if not paths:
+                continue
+            lines.append(f"### {role_label(role)} ({len(paths)} 个模块)")
+            lines.append("")
+            for p in sorted(paths)[:15]:
+                m = modules[p]
+                brief = (m.docstring or "")[:100].replace("\n", " ")
+                lines.append(f"- `{p}` ({m.total_lines}行, {m.total_entities}实体)")
+                if brief:
+                    lines.append(f"  — {brief}")
+            if len(paths) > 15:
+                lines.append(f"  ... 及其他 {len(paths) - 15} 个模块")
+            lines.append("")
+
+        lines += [
+            "## 建议",
+            "",
+            "配置 LLM API Key 并重新运行扫描分析，可自动生成更深入的架构分析文档。",
+            "",
+            "***",
+            f"*由 Code Wiki 自动生成（fallback 模板）· {datetime.now().strftime('%Y-%m-%d %H:%M')}*",
+        ]
         return "\n".join(lines)
 
     # ---- Private helpers ----
