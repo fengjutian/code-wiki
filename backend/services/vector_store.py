@@ -108,6 +108,10 @@ class JsonVectorStore:
         self._cache_ts = now
         return chunks
 
+    def clear_cache(self):
+        """Invalidate the in-memory index cache."""
+        self._cache = None
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

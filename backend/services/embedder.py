@@ -124,4 +124,4 @@ class Embedder:
     async def close(self):
         """Close the underlying HTTP client and clear caches."""
         await self._client.close()
-        self._store._cache = None
+        self._store.clear_cache()
