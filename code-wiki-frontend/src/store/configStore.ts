@@ -19,6 +19,27 @@ function sanitizeLLMConfig(raw: Partial<LLMConfig> | undefined | null): LLMConfi
   };
 }
 
+/** Load full LLM config from localStorage, falling back to api_key-only legacy key. */
+function loadLLMFromLocal(): Partial<LLMConfig> {
+  try {
+    const raw = localStorage.getItem("code-wiki-llm");
+    if (raw) return JSON.parse(raw) as Partial<LLMConfig>;
+  } catch { /* corrupted data */ }
+  // Legacy: only api_key was stored
+  const legacyKey = localStorage.getItem("code-wiki-api-key");
+  if (legacyKey) return { api_key: legacyKey };
+  return {};
+}
+
+/** Save full LLM config to localStorage. */
+function saveLLMToLocal(llm: LLMConfig) {
+  try {
+    localStorage.setItem("code-wiki-llm", JSON.stringify(llm));
+    // Also keep legacy key for scripts that still read it
+    localStorage.setItem("code-wiki-api-key", llm.api_key || "");
+  } catch { /* quota exceeded */ }
+}
+
 // ---- Store Shape ----
 interface ConfigState {
   // Tab
@@ -127,10 +148,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   wikiPath: localStorage.getItem("code-wiki-wiki-path") || "",
   languages: [...DEFAULT_LANGUAGES],
   excludePatterns: [...DEFAULT_EXCLUDE_PATTERNS],
-  llm: {
-    ...DEFAULT_LLM_CONFIG,
-    api_key: localStorage.getItem("code-wiki-api-key") || "",
-  },
+  llm: sanitizeLLMConfig(loadLLMFromLocal()),
 
   analysisStatus: {
     status: "idle",
@@ -175,16 +193,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     get().saveConfig();
   },
   saveApiKeyToLocal: () => {
-    const key = get().llm.api_key;
-    if (key) {
-      localStorage.setItem("code-wiki-api-key", key);
-    } else {
-      localStorage.removeItem("code-wiki-api-key");
-    }
+    const llm = get().llm;
+    saveLLMToLocal(llm);
   },
 
   setLLM: (llm) => {
     set({ llm });
+    saveLLMToLocal(llm);
     get().saveConfig();
   },
 

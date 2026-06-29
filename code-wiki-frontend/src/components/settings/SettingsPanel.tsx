@@ -4,10 +4,10 @@ import { useConfigStore } from "@/store/configStore";
 export function SettingsPanel() {
   const llm = useConfigStore((s) => s.llm);
   const setLLM = useConfigStore((s) => s.setLLM);
-  const saveApiKeyToLocal = useConfigStore((s) => s.saveApiKeyToLocal);
   const saveConfig = useConfigStore((s) => s.saveConfig);
   const theme = useConfigStore((s) => s.theme);
   const setTheme = useConfigStore((s) => s.setTheme);
+  const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -59,27 +59,36 @@ export function SettingsPanel() {
           <div>
             <label className="text-xs text-muted-foreground">API Key</label>
             <div className="flex gap-2 mt-1">
-              <input
-                type="password"
-                value={llm.api_key ?? ""}
-                onChange={(e) => {
-                  setLLM({ ...llm, api_key: e.target.value });
-                  setSaved(false);
-                }}
-                placeholder="sk-..."
-                className="flex-1 px-3 py-2 text-sm rounded-md border border-input bg-background"
-              />
+              <div className="flex-1 relative">
+                <input
+                  type={showKey ? "text" : "password"}
+                  value={llm.api_key ?? ""}
+                  onChange={(e) => {
+                    setLLM({ ...llm, api_key: e.target.value });
+                    setSaved(false);
+                  }}
+                  placeholder="sk-..."
+                  className="w-full px-3 py-2 pr-9 text-sm rounded-md border border-input bg-background"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground px-1"
+                  title={showKey ? "隐藏" : "显示"}
+                >
+                  {showKey ? "🙈" : "👁️"}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={async () => {
-                  saveApiKeyToLocal();
                   await saveConfig();
                   setSaved(true);
                   setTimeout(() => setSaved(false), 2000);
                 }}
                 className="px-3 py-2 text-sm rounded-md border border-input bg-background hover:bg-accent whitespace-nowrap"
               >
-                {saved ? "✓ 已保存" : "💾 保存"}
+                {saved ? "✓ 已同步" : "💾 同步到后端"}
               </button>
             </div>
           </div>

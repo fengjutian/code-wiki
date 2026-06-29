@@ -108,15 +108,22 @@ class Embedder:
 
         self._save_raw(existing)
 
-    async def embed_query(self, text: str) -> List[float]:
-        """Get embedding vector for a query string."""
+    async def embed_query(self, text: str) -> Optional[List[float]]:
+        """Get embedding vector for a query string.
+        
+        Returns None when embedding fails or returns a zero vector,
+        so the caller can fall back to keyword search cleanly.
+        """
         try:
             embeddings = await self._embed_texts([text])
             if embeddings and embeddings[0]:
-                return embeddings[0]
+                vec = embeddings[0]
+                # Detect zero-vector fallback from _embed_texts
+                if any(v != 0.0 for v in vec):
+                    return vec
         except Exception as e:
             logger.warning(f"Query embedding failed: {e}")
-        return []
+        return None
 
     def query(
         self,
@@ -212,7 +219,8 @@ class Embedder:
     def _tokenise(text: str) -> List[str]:
         """Split text into search tokens.
         
-        Space-separated words stay as-is.
+        Space-separated words stay as-is, plus sub-word splitting for
+        camelCase/PascalCase/snake_case/kebab-case identifiers.
         CJK spans (no spaces) are split into overlapping character bigrams.
         """
         tokens: List[str] = []
@@ -225,7 +233,40 @@ class Embedder:
                 tokens.extend(Embedder._cjk_bigrams(part))
             else:
                 tokens.append(part)
+                # Also split camelCase/PascalCase/snake_case/kebab-case
+                sub_tokens = Embedder._split_identifier(part)
+                for st in sub_tokens:
+                    st_lower = st.lower()
+                    if st_lower not in tokens:
+                        tokens.append(st_lower)
         return tokens
+
+    @staticmethod
+    def _split_identifier(text: str) -> List[str]:
+        """Split camelCase/PascalCase/snake_case/kebab-case into sub-words.
+        e.g. 'getUserById' -> ['get', 'User', 'ById', 'By', 'Id']
+             'user_service_impl' -> ['user', 'service', 'impl']
+        """
+        parts: List[str] = []
+        # First split by separators
+        for seg in text.replace('_', ' ').replace('-', ' ').split():
+            if not seg:
+                continue
+            # Split camelCase/PascalCase
+            current = seg[0]
+            for ch in seg[1:]:
+                if ch.isupper() and current and not current[-1].isupper():
+                    parts.append(current)
+                    current = ch
+                elif ch.islower() and len(current) >= 2 and current[-1].isupper() and current[-2].isupper():
+                    # Transition: 'BYId' -> ['BY', 'Id']
+                    parts.append(current[:-1])
+                    current = current[-1] + ch
+                else:
+                    current += ch
+            if current:
+                parts.append(current)
+        return [p for p in parts if len(p) >= 2]
 
     @staticmethod
     def _has_cjk(text: str) -> bool:

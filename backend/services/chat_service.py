@@ -67,13 +67,22 @@ class ChatService:
         # Step 1: Retrieve relevant Wiki chunks (semantic search)
         try:
             query_vec = await self.embedder.embed_query(question)
-            retrieved = self.embedder.query(question, top_k=5, query_embedding=query_vec if query_vec else None)
+            retrieved = self.embedder.query(question, top_k=8, query_embedding=query_vec)
         except Exception as e:
             logging.warning(f"Embedder query failed: {e}")
             retrieved = []
 
         # Step 2: Build context from retrieved chunks
         if retrieved:
+            # Build a project overview from the source paths
+            sources = list(dict.fromkeys(r.get("source", "unknown") for r in retrieved))  # deduplicate, keep order
+            overview_lines = ["**项目文档概览（基于检索到的 Wiki 文档）**："]
+            for src in sources[:20]:
+                overview_lines.append(f"  - {src}")
+            if len(sources) > 20:
+                overview_lines.append(f"  ... 共 {len(sources)} 个文件")
+            overview = "\n".join(overview_lines)
+
             context_parts = []
             for i, r in enumerate(retrieved, 1):
                 src = r.get("source", "unknown")
@@ -82,22 +91,23 @@ class ChatService:
                 context_parts.append(
                     f"[{i}] 来源: {src}\n标题: {title}\n{text}"
                 )
-            context = "\n\n---\n\n".join(context_parts)
+            context = overview + "\n\n---\n\n" + "\n\n---\n\n".join(context_parts)
         else:
-            context = "（未找到相关 Wiki 文档，请先分析代码生成 Wiki）"
+            context = "（未找到相关 Wiki 文档，以下回答基于通用知识，可能不够准确，建议运行代码分析以获取更精准的结果）"
 
         # Step 3: Build system prompt
-        system_prompt = f"""你是 Code Wiki 智能助手。根据以下 Wiki 文档片段回答用户问题。
+        system_prompt = f"""你是 Code Wiki 智能助手，帮助用户理解项目代码。
 
-**规则**：
-- 只能基于提供的 Wiki 片段回答，不要编造信息
+**项目文档概览已在上方列出** — 它展示了项目的模块结构。每篇文档都标注了来源文件路径。
+回答问题时，从提供的 Wiki 文档中查找相关信息并综合回答。如果文档信息不完整，可以结合代码常识补充，但要说明哪些是文档中有的、哪些是推断的。
+
+**要求**：
 - 引用代码位置时使用 [src:path:line] 格式
-- 如果 Wiki 中没有相关信息，说"未在文档中找到相关信息，建议先运行代码分析生成 Wiki"
 - 用中文回答，简洁专业，直接给出答案
-- **禁止在回答中重复、转述、引用用户的问题**，直接回答
+- **禁止重复或转述用户的问题**，直接回答
 - 回答末尾列出参考的文档来源
 
-**Wiki 文档片段**：
+**Wiki 文档内容**：
 {context}"""
 
         # Prepend a short instruction to the question to prevent model from echoing
