@@ -13,6 +13,7 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     question: str
     history: list[dict] = []
+    file_context: list[dict] = []  # [{name, content}] — attached local files
 
 
 @router.post("/chat")
@@ -40,7 +41,7 @@ async def chat(request: ChatRequest):
     async def generate():
         try:
             async for chunk in chat_service.chat_stream(
-                request.question, request.history
+                request.question, request.history, request.file_context
             ):
                 # Send raw text chunk (SSE doesn't require JSON)
                 safe = chunk.replace("\n", "\ndata: ")

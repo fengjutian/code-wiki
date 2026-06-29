@@ -6,6 +6,20 @@ import type {
 } from "@assistant-ui/react";
 
 /**
+ * Attached file context — set by ChatPanel before sending a message.
+ * The adapter reads it during run() and clears it after use.
+ */
+let _attachedFiles: { name: string; content: string }[] = [];
+
+export function setAttachedFiles(files: { name: string; content: string }[]) {
+  _attachedFiles = files;
+}
+
+export function getAttachedFiles(): { name: string; content: string }[] {
+  return _attachedFiles;
+}
+
+/**
  * Custom ChatModelAdapter that connects to our backend SSE chat endpoint.
  *
  * IMPORTANT: The runtime calls updateMessage() for each yield, but it uses a
@@ -48,10 +62,12 @@ export class SSEChatModelAdapter implements ChatModelAdapter {
       }));
 
     // POST to backend
+    const fileContext = _attachedFiles;
+    _attachedFiles = []; // clear after use
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, history }),
+      body: JSON.stringify({ question, history, file_context: fileContext }),
       signal: abortSignal,
     });
 

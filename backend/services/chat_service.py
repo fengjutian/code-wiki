@@ -44,12 +44,40 @@ class PromptBuilder:
         self._used += len(text)
         return self
 
+    def add_file_context(self, files: list[dict]) -> "PromptBuilder":
+        """Add user-attached local file contents as context."""
+        if not files:
+            return self
+        remaining = self._budget - self._used
+        if remaining <= 0:
+            return self
+        parts: list[str] = ["\n\n**附加文件内容**：\n\n"]
+        for f in files:
+            name = f.get("name", "unknown")
+            content = f.get("content", "")
+            # Truncate each file to fit budget
+            header = f"### 📄 {name}\n"
+            max_content = min(len(content), remaining - len(header) - 50)
+            if max_content <= 0:
+                break
+            part = header + content[:max_content]
+            if len(content) > max_content:
+                part += "\n... (truncated)"
+            self._used += len(part)
+            parts.append(part)
+            remaining = self._budget - self._used
+            if remaining <= 200:
+                break
+        self._context_parts = parts + (self._context_parts if isinstance(self._context_parts, list) else [])
+        return self
+
     def add_context(self, wiki_chunks: list[dict], source_codes: list[str]) -> "PromptBuilder":
         remaining = self._budget - self._used
         if remaining <= 0:
             return self
 
-        parts: list[str] = []
+        # Preserve any previously added context (e.g. file attachments)
+        parts: list[str] = list(self._context_parts) if isinstance(self._context_parts, list) else []
         for i, r in enumerate(wiki_chunks, 1):
             src = r.get("source", "unknown")
             title = r.get("title", "")
@@ -174,6 +202,7 @@ class ChatService:
         self,
         question: str,
         history: List[dict],
+        file_context: List[dict] | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         RAG query → SSE stream.
@@ -205,16 +234,24 @@ class ChatService:
                 source_codes.append(f"### 源代码: {src}\n```\n{code}\n```")
 
         # Step 3: Build messages with token budget via PromptBuilder
-        if retrieved:
-            system_prompt = (
-                "你是 Code Wiki 智能助手，帮助用户理解项目代码。\n"
-                "上方有从代码库中按函数/类/方法提取的相关代码片段。优先参考代码实现逻辑，"
-                "结合编程常识回答。信息不完整时可补充说明，但要标明来源。\n"
-                "要求：引用代码用 [src:path:line] 格式；中文简洁回答；不重复问题；末尾列出参考来源。"
-            )
+        if retrieved or (file_context and len(file_context) > 0):
+            if retrieved:
+                system_prompt = (
+                    "你是 Code Wiki 智能助手，帮助用户理解项目代码。\n"
+                    "上方有从代码库中按函数/类/方法提取的相关代码片段，以及用户附加的本地文件。"
+                    "优先参考代码实现逻辑和附加文件内容，"
+                    "结合编程常识回答。信息不完整时可补充说明，但要标明来源。\n"
+                    "要求：引用代码用 [src:path:line] 格式；中文简洁回答；不重复问题；末尾列出参考来源。"
+                )
+            else:
+                system_prompt = (
+                    "你是 Code Wiki 智能助手。以下回答基于用户附加的本地文件内容：\n"
+                    "要求：参考附加文件内容回答问题；中文简洁回答；不重复问题。"
+                )
             builder = (
                 PromptBuilder()
                 .add_system(system_prompt)
+                .add_file_context(file_context or [])
                 .add_context(retrieved, source_codes)
                 .add_history(history, max_turns=6)
                 .add_question(question)

@@ -1,4 +1,8 @@
-import { ThreadPrimitive, ComposerPrimitive, MessagePrimitive, useLocalRuntime, AssistantRuntimeProvider } from "@assistant-ui/react";
+import {
+  ThreadPrimitive, ComposerPrimitive, MessagePrimitive,
+  ActionBarPrimitive, BranchPickerPrimitive, SelectionToolbarPrimitive,
+  useLocalRuntime, AssistantRuntimeProvider,
+} from "@assistant-ui/react";
 import { SSEChatModelAdapter } from "@/lib/chat/sseAdapter";
 import { MarkdownHooks } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,6 +11,10 @@ import { cn } from "@/lib/utils";
 import { Suspense } from "react";
 import type { ComponentProps } from "react";
 import type { TextMessagePartComponent } from "@assistant-ui/react";
+import {
+  CopyIcon, RefreshCwIcon, ThumbsUpIcon, ThumbsDownIcon,
+  ChevronLeftIcon, ChevronRightIcon,
+} from "lucide-react";
 
 // ─── Runtime Provider ───
 
@@ -83,8 +91,43 @@ export function StyledMessage() {
                 Text: StyledMarkdownText,
               }}
             />
+            {/* Branch picker — shown when multiple regenerated versions exist */}
+            <BranchPickerPrimitive.Root
+              hideWhenSingleBranch
+              className="flex items-center gap-1 mt-2 pt-2 border-t border-border/40"
+            >
+              <BranchPickerPrimitive.Previous>
+                <ChevronLeftIcon size={14} />
+              </BranchPickerPrimitive.Previous>
+              <span className="text-[11px] text-muted-foreground px-1">
+                <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
+              </span>
+              <BranchPickerPrimitive.Next>
+                <ChevronRightIcon size={14} />
+              </BranchPickerPrimitive.Next>
+            </BranchPickerPrimitive.Root>
           </div>
         </div>
+        {/* Action bar — copy, regenerate, feedback */}
+        <ActionBarPrimitive.Root
+          hideWhenRunning
+          autohide="not-last"
+          autohideFloat="single-branch"
+          className="flex items-center gap-1 ml-2 mt-1"
+        >
+          <ActionBarPrimitive.Copy>
+            <CopyIcon size={14} />
+          </ActionBarPrimitive.Copy>
+          <ActionBarPrimitive.Reload>
+            <RefreshCwIcon size={14} />
+          </ActionBarPrimitive.Reload>
+          <ActionBarPrimitive.FeedbackPositive>
+            <ThumbsUpIcon size={14} />
+          </ActionBarPrimitive.FeedbackPositive>
+          <ActionBarPrimitive.FeedbackNegative>
+            <ThumbsDownIcon size={14} />
+          </ActionBarPrimitive.FeedbackNegative>
+        </ActionBarPrimitive.Root>
       </MessagePrimitive.If>
       {/* User message — right-aligned primary bubble */}
       <MessagePrimitive.If user={true}>
@@ -98,6 +141,12 @@ export function StyledMessage() {
           </div>
         </div>
       </MessagePrimitive.If>
+      {/* Selection toolbar — floating toolbar on text selection */}
+      <SelectionToolbarPrimitive.Root className="flex items-center gap-1 px-2 py-1 rounded-lg bg-popover border border-border shadow-lg text-xs">
+        <SelectionToolbarPrimitive.Quote className="px-2 py-1 rounded hover:bg-accent transition-colors">
+          引用
+        </SelectionToolbarPrimitive.Quote>
+      </SelectionToolbarPrimitive.Root>
     </MessagePrimitive.Root>
   );
 }
