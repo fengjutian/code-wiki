@@ -16,6 +16,96 @@ from httpx import AsyncClient, Timeout
 
 from services.embedder import Embedder
 
+# ---------------------------------------------------------------------------
+# Token budget (approximate: 1 char ≈ 0.25 token for CJK, ≈ 0.3 for English)
+# ---------------------------------------------------------------------------
+MAX_CONTEXT_CHARS = 16_000   # ~4000-5000 tokens
+MAX_WIKI_CHUNK_CHARS = 1000
+MAX_SOURCE_CHARS = 1500
+MAX_SOURCE_FILES = 3
+DEFAULT_TOP_K = 5
+
+
+class PromptBuilder:
+    """Assemble chat messages with a token budget — prevents context explosion."""
+
+    def __init__(self, budget_chars: int = MAX_CONTEXT_CHARS):
+        self._budget = budget_chars
+        self._used = 0
+        self._system = ""
+        self._context_parts: list[str] = []
+        self._history: list[dict] = []
+        self._question = ""
+
+    # -- fluent API --
+
+    def add_system(self, text: str) -> "PromptBuilder":
+        self._system = text
+        self._used += len(text)
+        return self
+
+    def add_context(self, wiki_chunks: list[dict], source_codes: list[str]) -> "PromptBuilder":
+        remaining = self._budget - self._used
+        if remaining <= 0:
+            return self
+
+        parts: list[str] = []
+        for i, r in enumerate(wiki_chunks, 1):
+            src = r.get("source", "unknown")
+            title = r.get("title", "")
+            text = r.get("text", "")[:MAX_WIKI_CHUNK_CHARS]
+            part = f"[{i}] {src} — {title}\n{text}"
+            if self._used + len(part) > self._budget * 0.7:
+                part = part[: self._budget * 7 // 10 - self._used]
+                if part:
+                    parts.append(part)
+                break
+            self._used += len(part)
+            parts.append(part)
+
+        if source_codes and self._used < self._budget * 0.85:
+            src_header = "\n\n**相关源代码**：\n\n"
+            self._used += len(src_header)
+            parts.append(src_header)
+            for sc in source_codes[:MAX_SOURCE_FILES]:
+                if self._used + len(sc) > self._budget:
+                    sc = sc[: self._budget - self._used - 20] + "\n... (truncated)"
+                if not sc.strip():
+                    continue
+                self._used += len(sc)
+                parts.append(sc)
+
+        self._context_parts = parts
+        return self
+
+    def add_history(self, history: list[dict], max_turns: int = 6) -> "PromptBuilder":
+        # Keep only recent turns; estimate ~200 chars/turn budget for history
+        hist_budget = self._budget // 10
+        kept: list[dict] = []
+        used = 0
+        for turn in reversed(history[-max_turns:]):
+            content = turn.get("content", "")
+            if used + len(content) > hist_budget:
+                break
+            used += len(content)
+            kept.insert(0, turn)
+        self._history = kept
+        return self
+
+    def add_question(self, question: str) -> "PromptBuilder":
+        self._question = f"直接回答下面的问题，不要重复问题原文：{question}"
+        return self
+
+    def build(self) -> list[dict]:
+        parts = [self._system]
+        if self._context_parts:
+            parts.append("\n\n---\n\n".join(self._context_parts))
+        ctx = "\n\n".join(parts)
+        messages: list[dict] = [{"role": "system", "content": ctx}]
+        messages.extend(self._history)
+        messages.append({"role": "user", "content": self._question})
+        return messages
+
 
 class ChatService:
     """RAG-based chat using Wiki embeddings and DeepSeek API."""
@@ -92,72 +182,52 @@ class ChatService:
         # Step 1: Retrieve relevant Wiki chunks (semantic search)
         try:
             query_vec = await self.embedder.embed_query(question)
-            retrieved = self.embedder.query(question, top_k=8, query_embedding=query_vec)
+            retrieved = self.embedder.query(question, top_k=DEFAULT_TOP_K, query_embedding=query_vec)
         except Exception as e:
             logging.warning(f"Embedder query failed: {e}")
             retrieved = []
 
-        # Step 2: Build context from retrieved chunks
+        # Step 2: Read source code for unique paths (limit before reading)
+        loop = asyncio.get_running_loop()
+        source_codes: list[str] = []
+        seen_sources: set[str] = set()
+        for r in retrieved:
+            src = r.get("source", "")
+            if not src or src in seen_sources:
+                continue
+            seen_sources.add(src)
+            if len(source_codes) >= MAX_SOURCE_FILES:
+                break
+            code = await loop.run_in_executor(None, self._read_source, self.repo_path, src)
+            if code:
+                source_codes.append(f"### 源代码: {src}\n```\n{code}\n```")
+
+        # Step 3: Build messages with token budget via PromptBuilder
         if retrieved:
-            # Build a project overview from the source paths
-            sources = list(dict.fromkeys(r.get("source", "unknown") for r in retrieved))  # deduplicate, keep order
-            overview_lines = ["**项目文档概览（基于检索到的 Wiki 文档）**："]
-            for src in sources[:20]:
-                overview_lines.append(f"  - {src}")
-            if len(sources) > 20:
-                overview_lines.append(f"  ... 共 {len(sources)} 个文件")
-            overview = "\n".join(overview_lines)
-
-            context_parts = []
-            for i, r in enumerate(retrieved, 1):
-                src = r.get("source", "unknown")
-                title = r.get("title", "")
-                text = r.get("text", "")[:1500]
-                context_parts.append(
-                    f"[{i}] 来源: {src}\n标题: {title}\n{text}"
-                )
-            context = overview + "\n\n---\n\n" + "\n\n---\n\n".join(context_parts)
-
-            # Step 2.5: Read actual source code for each unique source path
-            loop = asyncio.get_running_loop()
-            source_parts = []
-            seen_sources = set()
-            for r in retrieved:
-                src = r.get("source", "")
-                if not src or src in seen_sources:
-                    continue
-                seen_sources.add(src)
-                code = await loop.run_in_executor(None, self._read_source, self.repo_path, src)
-                if code:
-                    source_parts.append(f"### 源代码: {src}\n```\n{code}\n```")
-            if source_parts:
-                source_context = "\n\n---\n\n".join(source_parts[:5])  # at most 5 source files to save budget
-                context += "\n\n---\n\n**相关源代码**：\n\n" + source_context
+            system_prompt = (
+                "你是 Code Wiki 智能助手，帮助用户理解项目代码。\n"
+                "上方有 Wiki 文档（AI 代码分析）和相关源代码。优先参考 Wiki 了解高层逻辑，"
+                "再结合源代码确认实现细节。信息不完整时可结合编程常识补充，但要说明来源。\n"
+                "要求：引用代码用 [src:path:line] 格式；中文简洁回答；不重复问题；末尾列出参考来源。"
+            )
+            builder = (
+                PromptBuilder()
+                .add_system(system_prompt)
+                .add_context(retrieved, source_codes)
+                .add_history(history, max_turns=6)
+                .add_question(question)
+            )
+            messages = builder.build()
         else:
-            context = "（未找到相关 Wiki 文档，以下回答基于通用知识，可能不够准确，建议运行代码分析以获取更精准的结果）"
-
-        # Step 3: Build system prompt
-        system_prompt = f"""你是 Code Wiki 智能助手，帮助用户理解项目代码。
-
-上方提供了 **Wiki 文档** 和 **相关源代码**。Wiki 是 AI 生成的代码分析，源代码是项目原始文件。
-回答问题时，优先参考 Wiki 文档了解高层逻辑，再结合源代码确认具体实现细节。如果信息不完整，可以结合编程常识补充，但要说明哪些来自项目文件、哪些是推断的。
-
-**要求**：
-- 引用代码位置时使用 [src:path:line] 格式
-- 用中文回答，简洁专业，直接给出答案
-- **禁止重复或转述用户的问题**，直接回答
-- 回答末尾列出参考的文档和文件来源
-
-**上下文**：
-{context}"""
-
-        # Prepend a short instruction to the question to prevent model from echoing
-        enhanced_question = f"直接回答下面的问题，不要重复问题原文：{question}"
-        messages = [
-            {"role": "system", "content": system_prompt},
-            *history[-10:],  # Last 10 turns
-            {"role": "user", "content": enhanced_question},
-        ]
+            system_prompt = (
+                "你是 Code Wiki 智能助手。未找到相关 Wiki 文档，以下回答基于通用知识，"
+                "可能不够准确。建议运行代码分析以获取更精准的结果。"
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                *history[-6:],
+                {"role": "user", "content": question},
+            ]
 
         # Step 4: Stream from DeepSeek
         try:
