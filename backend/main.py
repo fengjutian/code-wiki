@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     if repo_path and os.path.isdir(repo_path):
         wiki_dir = get_wiki_path()
         wiki_dir.mkdir(parents=True, exist_ok=True)
-        (wiki_dir / "chroma").mkdir(exist_ok=True)
+        (wiki_dir / "faiss_index").mkdir(exist_ok=True)
     yield  # App runs here
 
 

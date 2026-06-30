@@ -1,14 +1,12 @@
-import { CodeIcon, BookOpenIcon, SettingsIcon, BarChart3Icon, MessageCircleIcon, ActivityIcon } from "lucide-react";
+import { CodeIcon, BookOpenIcon, SettingsIcon, BarChart3Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfigStore } from "@/store/configStore";
 
 const tabs = [
-  { id: "chat" as const, label: "AI 问答", icon: MessageCircleIcon },
   { id: "analysis" as const, label: "分析", icon: BarChart3Icon },
   { id: "code" as const, label: "Code", icon: CodeIcon },
   { id: "wiki" as const, label: "Wiki", icon: BookOpenIcon },
   { id: "settings" as const, label: "设置", icon: SettingsIcon },
-  { id: "test" as const, label: "测试", icon: ActivityIcon },
 ];
 
 export function LeftNav() {

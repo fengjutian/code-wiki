@@ -29,7 +29,7 @@ pnpm install
 pnpm dev
 ```
 
-前端开发服务器默认运行在 `http://localhost:5173`。
+前端开发服务器默认运行在 `http://localhost:1420`。
 
 ### 使用
 
@@ -138,9 +138,14 @@ code-wiki/
 │   │   ├── analyzer.py           # Python AST 分析器
 │   │   ├── ts_analyzer.py        # TypeScript 分析器
 │   │   ├── dependency_graph.py   # 依赖图构建
-│   │   ├── wiki_generator.py     # Wiki 生成（LLM）
-│   │   ├── embedder.py           # 向量嵌入
-│   │   └── chat_service.py       # 聊天/RAG 服务
+│   │   ├── embedder.py           # 向量嵌入（FAISS + BM25）
+│   │   ├── ast_chunker.py        # AST 粒度分块
+│   │   ├── hybrid_search.py      # 混合检索（RRF 融合）
+│   │   └── wiki/                 # Wiki 生成子包
+│   │       ├── generator.py      # Wiki 生成编排
+│   │       ├── prompt_builder.py # Prompt 构造
+│   │       ├── llm_service.py    # LLM API 调用
+│   │       └── markdown_builder.py # Markdown 生成
 │   └── routes/
 │       ├── scan.py               # 扫描 API
 │       ├── wiki.py               # Wiki 内容 API
@@ -179,7 +184,7 @@ code-wiki/
 | 后端框架 | FastAPI (Python) |
 | 代码分析 | AST (Python) + ts-morph (TypeScript) |
 | LLM 集成 | Ollama / OpenAI API |
-| 向量检索 | ChromaDB |
+| 向量检索 | FAISS (HNSW) + BM25 |
 
 ## API 概览
 
