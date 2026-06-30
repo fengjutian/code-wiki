@@ -5,6 +5,9 @@ Unlike the MarkdownChunker which splits Wiki pages by ## headings, this chunks
 the actual source code at semantic boundaries (functions, classes, methods),
 giving RAG retrieval precise, self-contained units of code.
 
+v2 — Integrates LangChain RecursiveCharacterTextSplitter for fine-grained
+     secondary splitting of oversized chunks (functions > 6000 bytes).
+
 Input:  Dict[str, ModuleInfo] from the analysis step
 Output: List[dict] — chunk dicts with text, source, symbol_name, symbol_type, etc.
 """
@@ -23,8 +26,20 @@ logger = logging.getLogger("code-wiki.ast_chunker")
 # ---------------------------------------------------------------------------
 # Tunables
 # ---------------------------------------------------------------------------
-MAX_CHUNK_BYTES = 6000          # Soft cap per chunk (bytes)
+MAX_CHUNK_BYTES = 6000          # Soft cap per chunk (bytes) — above this, fine-split
+FINE_SPLIT_SIZE = 2000          # Target chars for fine-split sub-chunks
+FINE_SPLIT_OVERLAP = 200        # Overlap between sub-chunks
 TRUNCATE_NOTICE = "\n... (truncated)"
+
+# LangChain fine-splitting (lazy import)
+_FINE_SPLIT_AVAILABLE = False
+_SplitterCache: dict = {}
+
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
+    _FINE_SPLIT_AVAILABLE = True
+except ImportError:
+    pass
 
 
 class ASTChunker:
@@ -42,11 +57,16 @@ class ASTChunker:
 
         Each chunk represents one function, method, class, interface, or
         React component — a self-contained semantic unit of code.
+
+        Oversized chunks (>MAX_CHUNK_BYTES) are fine-split using
+        LangChain's RecursiveCharacterTextSplitter (language-aware).
         """
         all_chunks: List[dict] = []
         for rel_path, module in sorted(modules.items()):
             try:
                 chunks = self._chunk_one_module(module)
+                # Fine-split oversized chunks
+                chunks = self._fine_split_chunks(chunks, module.language.value)
                 all_chunks.extend(chunks)
             except Exception as e:
                 logger.warning("AST chunking failed for %s: %s", rel_path, e)
@@ -56,6 +76,99 @@ class ASTChunker:
             len(all_chunks), len(modules),
         )
         return all_chunks
+
+    # ------------------------------------------------------------------
+    # Fine-splitting (LangChain RecursiveCharacterTextSplitter)
+    # ------------------------------------------------------------------
+
+    def _fine_split_chunks(self, chunks: List[dict], language: str) -> List[dict]:
+        """Apply language-aware fine-splitting to oversized chunks.
+
+        Chunks under MAX_CHUNK_BYTES pass through unchanged.  Oversized
+        chunks are split into sub-chunks that inherit the parent's
+        metadata (source, symbol_name, etc.).
+        """
+        if not _FINE_SPLIT_AVAILABLE:
+            # Fallback: truncate (original behavior)
+            return chunks
+
+        splitter = self._get_splitter(language)
+        if splitter is None:
+            return chunks
+
+        result: List[dict] = []
+        for chunk in chunks:
+            text = chunk.get("text", "")
+            if len(text.encode("utf-8")) <= MAX_CHUNK_BYTES:
+                result.append(chunk)
+                continue
+
+            # Fine-split this oversized chunk
+            try:
+                sub_texts = splitter.split_text(text)
+            except Exception:
+                sub_texts = [text]
+
+            if len(sub_texts) <= 1:
+                # Splitter couldn't split — keep original (truncated)
+                result.append(chunk)
+                continue
+
+            # Create sub-chunks inheriting parent metadata
+            for i, sub_text in enumerate(sub_texts):
+                suffix = f" [{i+1}/{len(sub_texts)}]" if len(sub_texts) > 1 else ""
+                sub_chunk = {
+                    "text": sub_text,
+                    "source": chunk.get("source", ""),
+                    "wiki_path": chunk.get("wiki_path", ""),
+                    "title": chunk.get("title", "") + suffix,
+                    "symbol_name": chunk.get("symbol_name", ""),
+                    "symbol_type": chunk.get("symbol_type", ""),
+                    "start_line": chunk.get("start_line"),
+                    "end_line": chunk.get("end_line"),
+                    "parent_class": chunk.get("parent_class"),
+                    "language": chunk.get("language", language),
+                }
+                result.append(sub_chunk)
+
+        return result
+
+    def _get_splitter(self, language: str):
+        """Return a cached language-aware RecursiveCharacterTextSplitter."""
+        if not _FINE_SPLIT_AVAILABLE:
+            return None
+
+        lang_key = language.lower()
+        if lang_key in _SplitterCache:
+            return _SplitterCache[lang_key]
+
+        try:
+            lang = {
+                "python": Language.PYTHON,
+                "typescript": Language.TS,
+                "javascript": Language.JS,
+            }.get(lang_key)
+        except (AttributeError, NameError):
+            lang = None
+
+        try:
+            if lang is not None:
+                splitter = RecursiveCharacterTextSplitter.from_language(
+                    language=lang,
+                    chunk_size=FINE_SPLIT_SIZE,
+                    chunk_overlap=FINE_SPLIT_OVERLAP,
+                )
+            else:
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=FINE_SPLIT_SIZE,
+                    chunk_overlap=FINE_SPLIT_OVERLAP,
+                    separators=["\n\n", "\n", " ", ""],
+                )
+            _SplitterCache[lang_key] = splitter
+            return splitter
+        except Exception as e:
+            logger.debug("Failed to create splitter for %s: %s", language, e)
+            return None
 
     # ------------------------------------------------------------------
     # Per-module chunking
@@ -300,7 +413,11 @@ class ASTChunker:
         code: str,
         extra_meta: Optional[str] = None,
     ) -> str:
-        """Build the embedding-ready text representation of a chunk."""
+        """Build the embedding-ready text representation of a chunk.
+
+        Oversized code bodies are passed through — fine-splitting is
+        handled by _fine_split_chunks() at the module level.
+        """
         parts = [
             f"Symbol: {symbol_name}",
             f"Type: {symbol_type}",
@@ -317,10 +434,12 @@ class ASTChunker:
         if extra_meta:
             parts.append(extra_meta)
 
-        # Truncate code if too long (keep the structure, cut the body)
+        # Soft-truncate at a high ceiling to avoid pathologically huge chunks
+        # Fine-splitting in _fine_split_chunks() handles the real sizing
         code_bytes = code.encode("utf-8")
-        if len(code_bytes) > MAX_CHUNK_BYTES:
-            truncated = _truncate_utf8_safe(code_bytes, MAX_CHUNK_BYTES)
+        SOFT_CEILING = 24_000  # bytes — well above MAX_CHUNK_BYTES, safety net only
+        if len(code_bytes) > SOFT_CEILING:
+            truncated = _truncate_utf8_safe(code_bytes, SOFT_CEILING)
             code = truncated.decode("utf-8", errors="replace") + TRUNCATE_NOTICE
 
         parts.append(f"Code:\n{code}")
