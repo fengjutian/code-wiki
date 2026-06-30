@@ -280,6 +280,7 @@ class ChatService:
                     "当用户询问有哪些文件时，直接从文件清单中列出。\n"
                     "要求：涉及项目结构、技术栈、接口、配置等结构化信息时优先使用 Markdown 表格呈现；"
                     "引用代码用 [src:path:line] 格式；引用文件用 `文件名`；中文简洁回答；不重复问题；末尾列出参考来源。"
+                    "只使用 Markdown 语法，不要输出任何 HTML 标签。"
                 )
             elif retrieved:
                 system_prompt = (
@@ -288,6 +289,7 @@ class ChatService:
                     "结合编程常识回答。信息不完整时可补充说明，但要标明来源。\n"
                     "要求：涉及项目结构、接口列表、依赖关系等结构化信息时优先使用 Markdown 表格呈现；"
                     "引用代码用 [src:path:line] 格式；中文简洁回答；不重复问题；末尾列出参考来源。"
+                    "只使用 Markdown 语法，不要输出任何 HTML 标签。"
                 )
             else:  # has_files only
                 system_prompt = (
@@ -299,6 +301,7 @@ class ChatService:
                     "当用户询问文件列表时，直接从文件清单列出；询问代码问题时引用具体文件内容。\n"
                     "要求：涉及项目结构、配置、API等结构化信息优先用 Markdown 表格呈现；"
                     "中文简洁回答；引用文件用 `文件名` 标明；不编造不存在的内容。"
+                    "只使用 Markdown 语法，不要输出任何 HTML 标签。"
                 )
             builder = (
                 PromptBuilder()
@@ -314,6 +317,7 @@ class ChatService:
                 "你是 Code Wiki 智能助手。未找到相关 Wiki 文档，以下回答基于通用知识，"
                 "可能不够准确。建议运行代码分析以获取更精准的结果。\n"
                 "涉及结构化信息时请多使用 Markdown 表格。"
+                "只使用 Markdown 语法，不要输出任何 HTML 标签。"
             )
             messages = [
                 {"role": "system", "content": system_prompt},
