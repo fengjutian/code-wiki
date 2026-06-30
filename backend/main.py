@@ -122,9 +122,6 @@ def create_app() -> FastAPI:
     return app
 
 
-# Load persisted config at module init (before create_app runs)
-load_config_from_disk()
-
 # Create the app instance
 logger.info("Starting Code Wiki backend...")
 app = create_app()

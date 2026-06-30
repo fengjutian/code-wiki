@@ -111,5 +111,5 @@ def save_config_to_disk():
     path.parent.mkdir(parents=True, exist_ok=True)
     to_save = {k: v for k, v in _config.items() if k != "llm"}
     to_save["llm"] = {k: v for k, v in _config["llm"].items() if k != "api_key"}
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(to_save, f, indent=2, ensure_ascii=False)

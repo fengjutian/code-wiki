@@ -13,27 +13,7 @@ from typing import Dict, List, Set, Tuple, Optional
 from collections import defaultdict
 
 from models.entities import ModuleInfo
-
-
-def _sanitize_label(text: str) -> str:
-    """Escape special chars for Mermaid labels inside quotes.
-    Preserves <br/> tags (Mermaid line breaks) during sanitization.
-    """
-    # Protect Mermaid line break markers
-    text = text.replace("<br/>", "\x00BR\x00")
-    result = (
-        text.replace('"', "'")
-        .replace("[", "(")
-        .replace("]", ")")
-        .replace("{", "(")
-        .replace("}", ")")
-        .replace("<", "⟨")
-        .replace(">", "⟩")
-        .replace("&", "＆")
-        .replace("#", "＃")
-        .replace("\n", " ")
-    )
-    return result.replace("\x00BR\x00", "<br/>")
+from services.mermaid_utils import sanitize_label
 
 
 class DependencyGraph:
@@ -148,7 +128,7 @@ class DependencyGraph:
 
     def to_mermaid(self, title: str = "Module Dependency Graph") -> str:
         """Export as Mermaid graph TD diagram."""
-        lines = [f"graph TD", f'    title["{_sanitize_label(title)}"]']
+        lines = [f"graph TD", f'    title["{sanitize_label(title)}"]']
 
         # Assign short IDs to modules
         ids: Dict[str, str] = {}
@@ -161,7 +141,7 @@ class DependencyGraph:
             for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]:
                 label = label.removesuffix(ext)
             label = label.replace("/", "/<br/>")
-            lines.append(f'    {node_id}["{_sanitize_label(label)}"]')
+            lines.append(f'    {node_id}["{sanitize_label(label)}"]')
 
         # Draw edges
         for src, targets in sorted(self._forward.items()):
@@ -188,13 +168,13 @@ class DependencyGraph:
         # Create subgraphs
         for group, paths in sorted(groups.items()):
             safe_group = group.replace("-", "_").replace(".", "_")
-            lines.append(f'    subgraph {safe_group}["{_sanitize_label(group)}"]')
+            lines.append(f'    subgraph {safe_group}["{sanitize_label(group)}"]')
             for i, path in enumerate(paths):
                 node_id = f"{safe_group}_{i}"
                 label = path.replace("\\", "/")
                 for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]:
                     label = label.removesuffix(ext)
-                label = _sanitize_label(label)
+                label = sanitize_label(label)
                 label = label.replace("/", "/<br/>")
                 lines.append(f'        {node_id}["{label}"]')
             lines.append("    end")

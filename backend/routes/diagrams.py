@@ -3,11 +3,11 @@
 import json
 import logging
 import os
-import re
 from pathlib import Path
 from fastapi import APIRouter
 
 from config import _config, get_wiki_path
+from services.mermaid_utils import sanitize_label, sanitize_identifier
 
 logger = logging.getLogger("code-wiki.diagrams")
 
@@ -37,35 +37,6 @@ def _load_mmd(name: str) -> str | None:
     return None
 
 
-def _sanitize_label(text: str) -> str:
-    """Escape special chars for Mermaid labels inside quotes.
-    Preserves <br/> tags (Mermaid line breaks) during sanitization.
-    """
-    # Protect Mermaid line break markers
-    text = text.replace("<br/>", "\x00BR\x00")
-    result = (
-        text.replace('"', "'")
-        .replace("[", "(")
-        .replace("]", ")")
-        .replace("{", "(")
-        .replace("}", ")")
-        .replace("<", "⟨")
-        .replace(">", "⟩")
-        .replace("&", "＆")
-        .replace("#", "＃")
-        .replace("\n", " ")
-    )
-    return result.replace("\x00BR\x00", "<br/>")
-
-
-def _sanitize_identifier(text: str) -> str:
-    """Make a string safe for use as a Mermaid bare identifier (no quotes).
-    Strips generic parameters and special chars."""
-    # Strip generic type params: Generic[T] → Generic, List[int] → List
-    # Also handle Foo<T>, Foo(T), Foo(int)
-    text = re.sub(r'[\[\(<].*[\]\)>]$', '', text.strip())
-    # Replace remaining dangerous chars with underscores
-    return re.sub(r'[^a-zA-Z0-9_À-ÿ]', '_', text)
 
 
 # ── Architecture diagram ──────────────────────────────────────────────────
@@ -125,7 +96,7 @@ def _build_architecture_mermaid(data: dict) -> str:
         for path in layer_paths:
             nid = _node_id(path)
             label = path.replace("\\", "/").rsplit(".", 1)[0]
-            lines.append(f'        {nid}["{_sanitize_label(label)}"]')
+            lines.append(f'        {nid}["{sanitize_label(label)}"]')
         lines.append("    end")
 
     # Draw dependency edges between layers
@@ -204,21 +175,21 @@ def _build_class_mermaid(data: dict) -> str:
 
     # Render classes
     for cls_name, cls_data in all_classes.items():
-        safe_name = _sanitize_identifier(cls_name.replace(".", "_").replace("/", "_"))
+        safe_name = sanitize_identifier(cls_name.replace(".", "_").replace("/", "_"))
         lines.append(f"    class {safe_name} {{")
         if cls_data["docstring"]:
-            doc_first_line = _sanitize_label(cls_data["docstring"].split("\n")[0])
+            doc_first_line = sanitize_label(cls_data["docstring"].split("\n")[0])
             lines.append(f"        +『{doc_first_line}』")
         for method in cls_data.get("methods", []):
             sig = method.get("signature", method.get("name", "?"))
             if not sig.endswith(")"):
                 sig += "()"
-            lines.append(f"        +{_sanitize_label(sig)}")
+            lines.append(f"        +{sanitize_label(sig)}")
         lines.append("    }")
 
         # Inheritance
         for base in cls_data["bases"]:
-            safe_base = _sanitize_identifier(base)
+            safe_base = sanitize_identifier(base)
             if safe_base and safe_base != "_":
                 lines.append(f"    {safe_name} --|> {safe_base}")
 
@@ -239,8 +210,8 @@ def _build_class_mermaid(data: dict) -> str:
                         tname = target_cls.get("name", "")
                         for sname in source_class_names:
                             if sname and tname:
-                                s_safe = _sanitize_identifier(sname)
-                                t_safe = _sanitize_identifier(tname)
+                                s_safe = sanitize_identifier(sname)
+                                t_safe = sanitize_identifier(tname)
                                 if s_safe and t_safe and s_safe != "_" and t_safe != "_":
                                     lines.append(f"    {s_safe} --> {t_safe} : uses")
                     break  # One edge per import path
@@ -309,7 +280,7 @@ def _build_sequence_mermaid(data: dict, fqn: str) -> str:
 
     # Add participant lines
     for alias, label in participants.items():
-        lines.append(f"    participant {alias} as {_sanitize_label(label)}")
+        lines.append(f"    participant {alias} as {sanitize_label(label)}")
 
     lines.append("")
 
