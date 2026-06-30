@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import json
 
 from config import _config, get_wiki_path
 from services.chat_service import ChatService
@@ -44,9 +45,8 @@ async def chat(request: ChatRequest):
             async for chunk in chat_service.chat_stream(
                 request.question, request.history, request.file_context
             ):
-                # Send raw text chunk (SSE doesn't require JSON)
-                safe = chunk.replace("\n", "\ndata: ")
-                yield f"data: {safe}\n\n"
+                # Use JSON encoding to preserve newlines and special chars in SSE
+                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
             yield f"data: [错误] {str(e)}\n\n"
@@ -90,8 +90,7 @@ async def chat_v2(request: ChatRequest):
             async for chunk in chat_service.chat_stream(
                 request.question, request.history, request.file_context
             ):
-                safe = chunk.replace("\n", "\ndata: ")
-                yield f"data: {safe}\n\n"
+                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
             yield f"data: [错误] {str(e)}\n\n"

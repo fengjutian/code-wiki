@@ -114,8 +114,8 @@ export class SSEChatModelAdapter implements ChatModelAdapter {
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
-            const chunk = line.slice(6).trimEnd();
-            if (chunk === "[DONE]") {
+            const raw = line.slice(6).trimEnd();
+            if (raw === "[DONE]") {
               // Yield one final time with complete text
               yield {
                 content: [
@@ -124,7 +124,15 @@ export class SSEChatModelAdapter implements ChatModelAdapter {
               };
               return;
             }
-            if (chunk === "") continue;
+            if (raw === "") continue;
+
+            // Parse JSON-encoded chunk to preserve newlines and special chars
+            let chunk: string;
+            try {
+              chunk = JSON.parse(raw);
+            } catch {
+              chunk = raw; // fallback for non-JSON payloads
+            }
 
             accumulated += chunk;
 
@@ -139,8 +147,14 @@ export class SSEChatModelAdapter implements ChatModelAdapter {
 
       // Final buffer flush
       if (buffer.startsWith("data: ")) {
-        const chunk = buffer.slice(6).trimEnd();
-        if (chunk !== "[DONE]" && chunk !== "") {
+        const raw = buffer.slice(6).trimEnd();
+        if (raw !== "[DONE]" && raw !== "") {
+          let chunk: string;
+          try {
+            chunk = JSON.parse(raw);
+          } catch {
+            chunk = raw;
+          }
           accumulated += chunk;
           yield {
             content: [
