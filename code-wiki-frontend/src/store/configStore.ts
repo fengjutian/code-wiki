@@ -19,31 +19,33 @@ function sanitizeLLMConfig(raw: Partial<LLMConfig> | undefined | null): LLMConfi
   };
 }
 
-/** Load full LLM config from localStorage, falling back to api_key-only legacy key. */
+/** Load full LLM config from sessionStorage (cleared on browser/app close). */
 function loadLLMFromLocal(): Partial<LLMConfig> {
   try {
-    const raw = localStorage.getItem("code-wiki-llm");
+    const raw = sessionStorage.getItem("code-wiki-llm");
     if (raw) return JSON.parse(raw) as Partial<LLMConfig>;
   } catch { /* corrupted data */ }
-  // Legacy: only api_key was stored
-  const legacyKey = localStorage.getItem("code-wiki-api-key");
+  // Legacy: only api_key was stored in localStorage
+  const legacyKey = sessionStorage.getItem("code-wiki-api-key") || localStorage.getItem("code-wiki-api-key");
   if (legacyKey) return { api_key: legacyKey };
   return {};
 }
 
-/** Save full LLM config to localStorage. */
+/** Save full LLM config to sessionStorage (cleared on browser/app close). */
 function saveLLMToLocal(llm: LLMConfig) {
   try {
-    localStorage.setItem("code-wiki-llm", JSON.stringify(llm));
-    // Also keep legacy key for scripts that still read it
-    localStorage.setItem("code-wiki-api-key", llm.api_key || "");
+    sessionStorage.setItem("code-wiki-llm", JSON.stringify(llm));
+    sessionStorage.setItem("code-wiki-api-key", llm.api_key || "");
+    // Clear any legacy localStorage copies
+    localStorage.removeItem("code-wiki-llm");
+    localStorage.removeItem("code-wiki-api-key");
   } catch { /* quota exceeded */ }
 }
 
 // ---- Store Shape ----
 interface ConfigState {
   // Tab
-  activeTab: "code" | "wiki" | "analysis" | "settings";
+  activeTab: "code" | "wiki" | "analysis" | "settings" | "graph";
   setActiveTab: (tab: ConfigState["activeTab"]) => void;
 
   // Chat

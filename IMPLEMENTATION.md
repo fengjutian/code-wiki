@@ -1,6 +1,9 @@
-# Code Wiki — 技术实现文档 v1.0
+# Code Wiki — 技术实现文档 v1.1
 
 > 基于 [REQUIREMENTS.md](./REQUIREMENTS.md) v3，本文档面向开发人员，描述各模块的技术实现细节、组件树、数据流和关键代码路径。
+>
+> **⚠️ 注意：** 本文档部分代码示例基于早期版本，当前实际实现可能已变更。请以源码为准。
+> 主要变更：向量存储 ChromaDB → FAISS (HNSW) + BM25 混合检索；Wiki 生成模块重组为 `services/wiki/` 子包。
 
 ---
 
@@ -1307,7 +1310,7 @@ class Analyzer:
 ### 2.4 Wiki Generator 服务
 
 ```python
-# backend/services/wiki_generator.py
+# backend/services/wiki/generator.py  （注：已重构为 services/wiki/ 子包）
 import os
 import json
 from datetime import datetime
@@ -1387,10 +1390,10 @@ class WikiGenerator:
     def write_all(self, repo_path: str, pages: List[WikiPage]):
         """全量写入：清除旧文件，写入新文件"""
         wiki_dir = os.path.join(repo_path, '.code-wiki')
-        # 清除旧的 .md 文件（保留 config.json 和 chroma/）
+        # 清除旧的 .md 文件（保留 config.json 和 faiss_index/）
         for root, dirs, files in os.walk(wiki_dir):
-            if 'chroma' in dirs:
-                dirs.remove('chroma')  # 不清除 Chroma 数据
+            if 'faiss_index' in dirs:
+                dirs.remove('faiss_index')  # 不清除向量索引数据
             for f in files:
                 if f.endswith('.md'):
                     os.remove(os.path.join(root, f))
@@ -1435,7 +1438,9 @@ class WikiGenerator:
 
 ```python
 # backend/services/chat_service.py
-import chromadb
+# ⚠️ 以下 ChromaDB 代码示例已过时。当前实现使用 FAISS + BM25 混合检索，
+# 详见 services/embedder.py、services/hybrid_search.py、services/vector_store_faiss.py
+import chromadb  # 已弃用 — 现使用 FAISS
 from typing import List, AsyncGenerator
 
 class ChatService:
@@ -1766,7 +1771,7 @@ export function useSSE() {
 | **LLM API** | 返回格式异常 | 回退到仅包含 AST 摘要的基础模板（不依赖 LLM） |
 | **文件系统** | 读写 .code-wiki/ 失败 | Toast 通知用户检查权限，中止操作 |
 | **AST 分析** | 语法错误的 .py 文件 | 跳过该文件，记录警告，继续分析其他文件 |
-| **Chroma** | 向量数据库损坏 | 自动重建索引 |
+| **FAISS** | 向量索引损坏 | 自动重建索引 |
 | **SSE 连接** | 断连 | 前端自动重连（3s 间隔，最多 10 次） |
 | **Sidecar** | FastAPI 进程崩溃 | Tauri 自动重启，UI 显示"重连中" |
 | **大仓库** | 分析超过 5 分钟 | 后端超时设置 10 分钟 + 前端显示进度条 |

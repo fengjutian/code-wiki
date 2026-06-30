@@ -16,7 +16,7 @@ import math
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from services.search import SearchEngine, KeywordTokenizer
+from services.search import KeywordTokenizer
 
 logger = logging.getLogger("code-wiki.hybrid_search")
 
@@ -38,7 +38,6 @@ class HybridSearchEngine:
 
     def __init__(self, wiki_path: str = ""):
         self._wiki_path = wiki_path
-        self._legacy = SearchEngine()
 
         # BM25 state
         self._bm25 = None                # BM25Okapi instance
@@ -228,7 +227,7 @@ class HybridSearchEngine:
     # ------------------------------------------------------------------
 
     def _bm25_corpus_path(self) -> Path:
-        return Path(self._wiki_path) / "chroma" / "bm25_corpus.json"
+        return Path(self._wiki_path) / "faiss_index" / "bm25_corpus.json"
 
     def _save_bm25_corpus(self, tokenized: List[List[str]]):
         """Persist the tokenized corpus so BM25 can be reloaded."""

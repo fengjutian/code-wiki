@@ -1,4 +1,4 @@
-import { CodeIcon, BookOpenIcon, SettingsIcon, BarChart3Icon } from "lucide-react";
+import { CodeIcon, BookOpenIcon, SettingsIcon, BarChart3Icon, GitGraphIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfigStore } from "@/store/configStore";
 
@@ -6,6 +6,7 @@ const tabs = [
   { id: "analysis" as const, label: "分析", icon: BarChart3Icon },
   { id: "code" as const, label: "Code", icon: CodeIcon },
   { id: "wiki" as const, label: "Wiki", icon: BookOpenIcon },
+  { id: "graph" as const, label: "图谱", icon: GitGraphIcon },
   { id: "settings" as const, label: "设置", icon: SettingsIcon },
 ];
 
