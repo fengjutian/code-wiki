@@ -47,15 +47,9 @@ def _find_config_in_cwd() -> Path | None:
         Path.cwd().parent / ".code-wiki" / "config.json",
     ]
     # Check known paths from previous save_config_to_disk() runs.
-    # repo_path is "D:\order-project\order" → _to_native_path gives:
-    #   Linux/WSL: /mnt/d/order-project/order/.code-wiki/config.json
-    #   Windows:   D:\\order-project\\order\\.code-wiki\\config.json
-    for _cfg in [
-        Path("/mnt/d/order-project/order/.code-wiki/config.json"),
-        Path("D:\\order-project\\order\\.code-wiki\\config.json"),
-    ]:
-        if _cfg.exists() and _cfg.stat().st_size > 50:
-            return _cfg
+    _cfg_from_config = _get_config_path()
+    if _cfg_from_config and _cfg_from_config.exists() and _cfg_from_config.stat().st_size > 50:
+        return _cfg_from_config
     for c in candidates:
         if c.exists():
             return c

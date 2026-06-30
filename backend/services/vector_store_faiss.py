@@ -132,6 +132,7 @@ class FAISSVectorStore:
                 index_name="index",
                 allow_dangerous_deserialization=True,
             )
+            self._configure_hnsw()
             logger.info(
                 "FAISS index loaded from %s (%d vectors)",
                 self._index_dir, self._store.index.ntotal,
@@ -154,6 +155,33 @@ class FAISSVectorStore:
         logger.info("FAISS index saved to %s (%d vectors)", self._index_dir, n)
 
     # ------------------------------------------------------------------
+    # HNSW tuning
+    # ------------------------------------------------------------------
+
+    def _configure_hnsw(self):
+        """Apply HNSW efSearch parameter to the FAISS index if supported.
+
+        On IndexFlat (exact search) this is a no-op.
+        On IndexHNSW (approximate search) this controls query-time
+        search depth — higher = more accurate but slower.
+        """
+        if self._store is None:
+            return
+        try:
+            import faiss
+            idx = self._store.index
+            # Try nprobe for IVF indices, efSearch for HNSW
+            try:
+                faiss.ParameterSpace().set_index_parameter(idx, "nprobe", 32)
+            except RuntimeError:
+                pass
+            if hasattr(idx, "hnsw"):
+                idx.hnsw.efSearch = EF_SEARCH
+                logger.debug("FAISS HNSW efSearch set to %d", EF_SEARCH)
+        except Exception:
+            pass  # Not critical — defaults are fine
+
+    # ------------------------------------------------------------------
     # Build / rebuild
     # ------------------------------------------------------------------
 
@@ -165,6 +193,8 @@ class FAISSVectorStore:
         """Build a new FAISS index from texts + metadatas.
 
         This replaces any existing index in memory (not on disk until save()).
+        NOTE: This internally calls embed_documents — prefer from_embeddings()
+        when you already have pre-computed embeddings to avoid duplicate API calls.
         """
         if self._embeddings is None:
             raise RuntimeError("FAISSVectorStore has no embedding client")
@@ -179,13 +209,42 @@ class FAISSVectorStore:
         ]
 
         logger.info("Building FAISS index from %d documents ...", len(docs))
-        self._store = FAISS.from_documents(
-            docs,
-            self._embeddings,
-            # FAISS.from_documents doesn't accept index_params directly;
-            # we configure HNSW via FAISS's internal defaults.
+        self._store = FAISS.from_documents(docs, self._embeddings)
+        logger.info("FAISS index built: %d vectors", self._store.index.ntotal)
+        self._configure_hnsw()
+
+    def from_embeddings(
+        self,
+        texts: List[str],
+        embeddings: List[List[float]],
+        metadatas: Optional[List[dict]] = None,
+    ):
+        """Build a new FAISS index from pre-computed embeddings.
+
+        Use this when you already have embeddings (e.g. from EmbeddingClient)
+        to avoid double API calls.  The embeddings are consumed directly
+        without going through _LangChainEmbeddingsAdapter.
+        """
+        if self._embeddings is None:
+            raise RuntimeError("FAISSVectorStore has no embedding client")
+
+        if not texts:
+            self._store = None
+            return
+
+        metadatas = metadatas or [{}] * len(texts)
+
+        # Create text-embedding pairs for FAISS.from_embeddings
+        text_embedding_pairs = list(zip(texts, embeddings))
+
+        logger.info("Building FAISS index from %d pre-computed embeddings ...", len(text_embedding_pairs))
+        self._store = FAISS.from_embeddings(
+            text_embedding_pairs,
+            self._embeddings,  # still needed for query embedding
+            metadatas=metadatas,
         )
         logger.info("FAISS index built: %d vectors", self._store.index.ntotal)
+        self._configure_hnsw()
 
     def add_texts(
         self,

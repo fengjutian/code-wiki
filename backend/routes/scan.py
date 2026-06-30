@@ -301,58 +301,30 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
             wiki_path_str = str(get_wiki_path())
             index_mgr = IndexManager(wiki_path_str)
 
-            # Compute delta: which files are new / changed / deleted
+            # Compute delta — skip embedding if nothing changed
             added, changed, deleted = index_mgr.compute_delta(modules, repo_path)
             needs_reindex = added + changed
 
-            # Only do full rebuild if > 50% of modules changed or first run
-            if index_mgr.count() == 0 or len(needs_reindex) > len(modules) * 0.5:
+            embedder = Embedder(
+                repo_path=repo_path,
+                wiki_path=wiki_path_str,
+                api_key=api_key,
+                base_url=llm_config.get("base_url", "https://api.deepseek.com"),
+            )
+
+            if not needs_reindex and not deleted:
+                logger.info("No modules changed since last index — skipping embed")
+            else:
                 _push_status(
                     status="generating",
                     progress=0.95,
-                    current_step=f"正在向量化全部 {len(modules)} 个模块的代码符号...",
-                )
-                embedder = Embedder(
-                    repo_path=repo_path,
-                    wiki_path=wiki_path_str,
-                    api_key=api_key,
-                    base_url=llm_config.get("base_url", "https://api.deepseek.com"),
+                    current_step=f"正在向量化 {len(modules)} 个模块的代码符号..."
+                    f" (+{len(added)} new, ~{len(changed)} changed, -{len(deleted)} deleted)",
                 )
                 await embedder.rebuild_ast_index(modules)
+                # Reset hash table and mark all as synced
                 index_mgr.clear_all()
                 index_mgr.mark_synced(list(modules.keys()), modules, repo_path)
-            else:
-                # Incremental: only re-embed changed/new, delete removed
-                _push_status(
-                    status="generating",
-                    progress=0.95,
-                    current_step=f"正在增量向量化: +{len(added)} 新增, ~{len(changed)} 变更, -{len(deleted)} 删除",
-                )
-                embedder = Embedder(
-                    repo_path=repo_path,
-                    wiki_path=wiki_path_str,
-                    api_key=api_key,
-                    base_url=llm_config.get("base_url", "https://api.deepseek.com"),
-                )
-
-                # Delete removed files from FAISS
-                for del_path in deleted:
-                    embedder._store.load()  # ensure loaded
-                    embedder._store.delete_by_source(del_path)
-                index_mgr.mark_deleted(deleted)
-
-                # Re-chunk and embed only changed/new modules
-                if needs_reindex:
-                    changed_modules = {p: modules[p] for p in needs_reindex if p in modules}
-                    await embedder.rebuild_ast_index(changed_modules)
-                    # Note: rebuild_ast_index does a full from_texts which replaces the index.
-                    # For true incremental, we'd need add_texts.  Since we guard on >50%,
-                    # this only triggers for small deltas where from_texts is fast.
-                    # After from_texts, we re-add ALL current modules' hashes.
-                    index_mgr.clear_all()
-                    index_mgr.mark_synced(list(modules.keys()), modules, repo_path)
-                else:
-                    logger.info("No modules changed — skipping embed")
 
             index_mgr.close()
 

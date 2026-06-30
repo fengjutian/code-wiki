@@ -11,10 +11,9 @@ Supports three scan modes:
 import os
 import fnmatch
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 from models.entities import SupportedLanguage
-from typing import List, Optional, Dict, Tuple
 
 
 class Scanner:

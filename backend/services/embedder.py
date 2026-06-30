@@ -91,9 +91,11 @@ class Embedder:
         """Full rebuild: clear existing index, re-embed all wiki pages.
 
         Uses MarkdownChunker for compatibility with existing wiki pipeline.
+        Embedding is done ONCE and shared between FAISS and legacy store.
         """
         chunks = self._chunker.chunk_pages(pages)
         texts = [c["text"] for c in chunks]
+
         # Build metadatas for FAISS store
         metadatas = [
             {
@@ -103,12 +105,18 @@ class Embedder:
             }
             for c in chunks
         ]
-        self._store.from_texts(texts, metadatas)
-        self._store.save()
-        # Also save via legacy store for backward compat + BM25
+
+        # Embed ONCE
         embeddings = await self._client.embed_texts(texts)
+
+        # FAISS from pre-computed embeddings
+        self._store.from_embeddings(texts, embeddings, metadatas)
+        self._store.save()
+
+        # Legacy store for BM25
         self._legacy_store.save_index(chunks, embeddings)
-        # Also build BM25 from wiki chunks for hybrid search
+
+        # Build BM25 from wiki chunks for hybrid search
         self._hybrid.build_bm25(chunks)
 
     async def update_index(self, pages: List[WikiPage]):
@@ -149,8 +157,8 @@ class Embedder:
     async def rebuild_ast_index(self, modules: Dict[str, ModuleInfo]):
         """Rebuild the vector index from analyzed source-code modules.
 
-        Extracts function/class/method-level chunks, embeds them, and
-        builds a hybrid BM25 + Dense index for retrieval.
+        Extracts function/class/method-level chunks, embeds them ONCE, and
+        builds both FAISS and hybrid BM25+Dense index for retrieval.
         """
         chunks = self._ast_chunker.chunk_modules(modules)
         if not chunks:
@@ -176,13 +184,15 @@ class Embedder:
             for c in chunks
         ]
 
-        # Build FAISS index (this also embeds all texts internally)
-        self._store.from_texts(texts, metadatas)
+        # Embed ONCE — share between FAISS and legacy store (avoid double API calls)
+        embeddings = await self._client.embed_texts(texts)
+
+        # Build FAISS index from pre-computed embeddings
+        self._store.from_embeddings(texts, embeddings, metadatas)
         self._store.save()
         logger.info("FAISS index saved: %d vectors", self._store.count)
 
         # Also save via legacy store for BM25 hybrid search compatibility
-        embeddings = await self._client.embed_texts(texts)
         self._legacy_store.save_index(chunks, embeddings)
 
         # Build hybrid search index (BM25 + cosine)
