@@ -26,7 +26,8 @@ from models.entities import WikiPage, ModuleInfo
 from services.chunker import MarkdownChunker
 from services.ast_chunker import ASTChunker
 from services.embedding_client import EmbeddingClient
-from services.vector_store import JsonVectorStore
+from services.vector_store import JsonVectorStore  # kept for legacy wiki-based indexing
+from services.vector_store_faiss import FAISSVectorStore
 from services.search import SearchEngine
 from services.hybrid_search import HybridSearchEngine
 from services.reranker import Reranker
@@ -65,7 +66,11 @@ class Embedder:
         self._chunker = MarkdownChunker()
         self._ast_chunker = ASTChunker(repo_path)
         self._client = EmbeddingClient(api_key=api_key, base_url=base_url)
-        self._store = JsonVectorStore(wiki_path=self.wiki_path)
+        self._store = FAISSVectorStore(
+            wiki_path=self.wiki_path,
+            embedding_client=self._client,
+        )
+        self._legacy_store = JsonVectorStore(wiki_path=self.wiki_path)  # for wiki chunks only
         self._search = SearchEngine()
         self._hybrid = HybridSearchEngine(wiki_path=self.wiki_path)
         self._reranker: Optional[Reranker] = None  # Lazy-loaded
@@ -89,29 +94,52 @@ class Embedder:
         """
         chunks = self._chunker.chunk_pages(pages)
         texts = [c["text"] for c in chunks]
+        # Build metadatas for FAISS store
+        metadatas = [
+            {
+                "source": c.get("source", ""),
+                "title": c.get("title", ""),
+                "wiki_path": c.get("wiki_path", ""),
+            }
+            for c in chunks
+        ]
+        self._store.from_texts(texts, metadatas)
+        self._store.save()
+        # Also save via legacy store for backward compat + BM25
         embeddings = await self._client.embed_texts(texts)
-        self._store.save_index(chunks, embeddings)
+        self._legacy_store.save_index(chunks, embeddings)
         # Also build BM25 from wiki chunks for hybrid search
         self._hybrid.build_bm25(chunks)
 
     async def update_index(self, pages: List[WikiPage]):
         """Incremental update: add/replace chunks for given pages."""
-        existing = self._store.load_index()
-
-        # Remove old chunks for these source paths
+        # Delete old chunks for these source paths from FAISS
         source_paths = {p.source_path for p in pages}
-        existing = [c for c in existing if c["source"] not in source_paths]
+        for sp in source_paths:
+            self._store.delete_by_source(sp)
 
-        # Add new chunks
+        # Add new chunks to FAISS
         new_chunks = self._chunker.chunk_pages(pages)
         texts = [c["text"] for c in new_chunks]
-        embeddings = await self._client.embed_texts(texts)
+        metadatas = [
+            {
+                "source": c.get("source", ""),
+                "title": c.get("title", ""),
+                "wiki_path": c.get("wiki_path", ""),
+            }
+            for c in new_chunks
+        ]
+        self._store.add_texts(texts, metadatas)
+        self._store.save()
 
+        # Also update legacy store for BM25 hybrid search
+        existing = self._legacy_store.load_index()
+        existing = [c for c in existing if c["source"] not in source_paths]
+        embeddings = await self._client.embed_texts(texts)
         for chunk, emb in zip(new_chunks, embeddings):
             chunk["embedding"] = emb
         existing.extend(new_chunks)
-
-        self._store.save_raw(existing)
+        self._legacy_store.save_raw(existing)
         self._hybrid.build_bm25(existing)
 
     # ------------------------------------------------------------------
@@ -130,9 +158,32 @@ class Embedder:
             return
 
         texts = [c["text"] for c in chunks]
-        logger.info("Embedding %d AST chunks ...", len(texts))
+        logger.info("Building FAISS index with %d AST chunks ...", len(texts))
+
+        # Build metadatas with full chunk info for search results
+        metadatas = [
+            {
+                "source": c.get("source", ""),
+                "title": c.get("title", ""),
+                "symbol_name": c.get("symbol_name", ""),
+                "symbol_type": c.get("symbol_type", ""),
+                "start_line": c.get("start_line"),
+                "end_line": c.get("end_line"),
+                "language": c.get("language", ""),
+                "parent_class": c.get("parent_class"),
+                "wiki_path": c.get("wiki_path", ""),
+            }
+            for c in chunks
+        ]
+
+        # Build FAISS index (this also embeds all texts internally)
+        self._store.from_texts(texts, metadatas)
+        self._store.save()
+        logger.info("FAISS index saved: %d vectors", self._store.count)
+
+        # Also save via legacy store for BM25 hybrid search compatibility
         embeddings = await self._client.embed_texts(texts)
-        self._store.save_index(chunks, embeddings)
+        self._legacy_store.save_index(chunks, embeddings)
 
         # Build hybrid search index (BM25 + cosine)
         self._hybrid.build_bm25(chunks)
@@ -160,7 +211,15 @@ class Embedder:
 
         Falls back to legacy SearchEngine if BM25 is not available.
         """
-        chunks = self._store.load_index()
+        # Load FAISS store if not already loaded
+        if not self._store.is_loaded:
+            self._store.load()
+
+        # Get all chunks from FAISS for hybrid search compatibility
+        chunks = self._store.get_all_documents()
+        if not chunks:
+            # Fallback to legacy store
+            chunks = self._legacy_store.load_index()
 
         # Try to use hybrid engine if chunks available
         if self._hybrid._bm25 is not None:
@@ -182,7 +241,14 @@ class Embedder:
         Retrieves HYBRID_TOP_K candidates via BM25+Cosine RRF, then
         re-ranks with cross-encoder to select the final Top-K.
         """
-        chunks = self._store.load_index()
+        # Load FAISS store if not already loaded
+        if not self._store.is_loaded:
+            self._store.load()
+
+        # Get all chunks from FAISS for hybrid search compatibility
+        chunks = self._store.get_all_documents()
+        if not chunks:
+            chunks = self._legacy_store.load_index()
 
         # Step 1: Hybrid retrieval (Top-20 candidates)
         if self._hybrid._bm25 is not None:
@@ -218,4 +284,5 @@ class Embedder:
     async def close(self):
         """Close the underlying HTTP client and clear caches."""
         await self._client.close()
-        self._store.clear_cache()
+        self._store.clear()
+        self._legacy_store.clear_cache()
