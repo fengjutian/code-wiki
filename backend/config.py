@@ -46,10 +46,6 @@ def _find_config_in_cwd() -> Path | None:
         Path.cwd() / ".code-wiki" / "config.json",
         Path.cwd().parent / ".code-wiki" / "config.json",
     ]
-    # Check known paths from previous save_config_to_disk() runs.
-    _cfg_from_config = _get_config_path()
-    if _cfg_from_config and _cfg_from_config.exists() and _cfg_from_config.stat().st_size > 50:
-        return _cfg_from_config
     for c in candidates:
         if c.exists():
             return c
