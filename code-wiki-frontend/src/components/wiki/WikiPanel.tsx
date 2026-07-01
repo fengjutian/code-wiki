@@ -51,6 +51,18 @@ export function WikiPanel() {
   useEffect(() => {
     async function fetchDiagram() {
       try {
+        // Desktop mode: read pre-generated architecture.mmd directly from local filesystem
+        if (activeDiagram === "architecture" && "__TAURI__" in window && repoPath) {
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const mermaid = await invoke<string>("read_file_content", {
+              repoPath, filePath: ".code-wiki/diagrams/architecture.mmd",
+            });
+            setDiagramData((prev) => ({ ...prev, architecture: mermaid }));
+            return;
+          } catch { /* fall through to HTTP */ }
+        }
+        // HTTP API (browser dev mode, or dynamic diagrams: classes / sequence)
         const endpoints: Record<string, string> = {
           architecture: "/api/diagrams/architecture",
           classes: "/api/diagrams/classes",

@@ -337,7 +337,21 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   },
 
   fetchWikiContent: async (path) => {
+    const repoPath = get().repoPath;
     try {
+      // Desktop mode: read wiki .md file directly from local filesystem
+      if (repoPath && "__TAURI__" in window) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const content = await invoke<string>("read_file_content", {
+            repoPath,
+            filePath: `.code-wiki/${path}`,
+          });
+          set({ wikiContent: content });
+          return;
+        } catch { /* fall through to HTTP */ }
+      }
+      // Browser dev mode: HTTP API
       const res = await fetch(`/api/wiki/${path}`);
       if (res.ok) {
         const content = await res.text();
