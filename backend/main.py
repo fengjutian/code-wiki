@@ -84,7 +84,7 @@ def create_app() -> FastAPI:
     # CORS — allow Tauri dev server (localhost:1420)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:1420", "tauri://localhost"],
+        allow_origins=["http://localhost:3000", "tauri://localhost"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -134,4 +134,4 @@ logger.info("App created successfully")
 if __name__ == "__main__":
     import uvicorn
     logger.info("Launching uvicorn on 127.0.0.1:8788 with reload=True")
-    uvicorn.run("main:app", host="127.0.0.1", port=8788, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

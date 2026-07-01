@@ -19,7 +19,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-后端默认运行在 `http://127.0.0.1:8788`。
+后端默认运行在 `http://127.0.0.1:8000`。
 
 ### 启动前端
 
@@ -29,7 +29,7 @@ pnpm install
 pnpm dev
 ```
 
-前端开发服务器默认运行在 `http://localhost:1420`。
+前端开发服务器默认运行在 `http://localhost:3000`。
 
 ### 使用
 
@@ -222,7 +222,7 @@ excludes:
 
 ```bash
 # 后端热重载
-cd backend && uvicorn main:app --reload --host 127.0.0.1 --port 8788
+cd backend && uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 # 前端热重载
 cd code-wiki-frontend && pnpm dev

@@ -21,7 +21,7 @@ export default defineConfig(async () => ({
   // Vite options for Tauri
   clearScreen: false,
   server: {
-    port: 1420,
+    port: 3000,
     strictPort: true,
     host: host || false,
     hmr: host
@@ -31,7 +31,7 @@ export default defineConfig(async () => ({
     // Proxy API requests to FastAPI backend
     proxy: {
       "/api": {
-        target: "http://localhost:8788",
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
     },
