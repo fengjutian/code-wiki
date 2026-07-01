@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import cytoscape, { type Core } from "cytoscape";
+import { useConfigStore } from "@/store/configStore";
 import { Search, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+
+// ---- Module-level cache — survives tab switches without re-fetching ----
+let _cachedGraphData: GraphData | null = null;
+let _cacheTimestamp = 0;
+const CACHE_TTL = 300_000; // 5 minutes
 
 // ---- Layout presets ----
 type LayoutName = "cose" | "breadthfirst" | "concentric" | "circle" | "grid";
@@ -32,34 +38,108 @@ interface GraphData {
   edges: GraphEdge[];
 }
 
+// ---- Transform raw analysis.json → GraphData (for Tauri local file path) ----
+interface RawModule {
+  classes?: unknown[]; functions?: unknown[]; interfaces?: unknown[]; components?: unknown[];
+  language?: string;
+}
+interface RawEdge { source: string; targets: string[]; }
+interface AnalysisData { modules: Record<string, RawModule>; dependency_graph?: { edges: RawEdge[] }; }
+
+function transformAnalysis(data: AnalysisData): GraphData {
+  const { modules, dependency_graph } = data;
+  const modPaths = Object.keys(modules);
+  const LAYER_COLORS: Record<string, string> = {
+    routes: "#0288d1", services: "#388e3c", models: "#f57c00",
+    frontend: "#7b1fa2", config: "#c62828", other: "#616161",
+  };
+  function classifyLayer(path: string): string {
+    const norm = path.replace(/\\/g, "/");
+    if (norm.startsWith("routes/")) return "routes";
+    if (norm.startsWith("services/")) return "services";
+    if (norm.startsWith("models/")) return "models";
+    if (norm.startsWith("src/") || norm.includes("frontend")) return "frontend";
+    if (norm.startsWith("config") || norm.startsWith("main")) return "config";
+    return "other";
+  }
+  const nodes: GraphNode[] = modPaths.map((path) => {
+    const mod = modules[path];
+    const layer = classifyLayer(path);
+    return {
+      id: path, label: path.replace(/\\/g, "/"), layer,
+      color: LAYER_COLORS[layer] || LAYER_COLORS.other,
+      entityCount: (mod.classes?.length ?? 0) + (mod.functions?.length ?? 0) + (mod.interfaces?.length ?? 0) + (mod.components?.length ?? 0),
+      language: mod.language ?? "python",
+    };
+  });
+  const modSet = new Set(modPaths);
+  const edges: GraphEdge[] = [];
+  for (const entry of dependency_graph?.edges ?? []) {
+    for (const tgt of entry.targets) {
+      if (modSet.has(entry.source) && modSet.has(tgt)) {
+        edges.push({ source: entry.source, target: tgt, type: "imports" });
+      }
+    }
+  }
+  return { nodes, edges };
+}
+
 export function KnowledgeGraph() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
+  const repoPath = useConfigStore((s) => s.repoPath);
   const [layout, setLayout] = useState<LayoutName>("cose");
   const [search, setSearch] = useState("");
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
 
-  // ---- Fetch data ----
+  // ---- Load analysis.json: Tauri local file → HTTP API fallback ----
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/graph/data");
-        if (!res.ok) throw new Error(`${res.status}`);
-        const data = await res.json() as GraphData;
+        // Use cache if fresh
+        if (_cachedGraphData && Date.now() - _cacheTimestamp < CACHE_TTL) {
+          setGraphData(_cachedGraphData);
+          setLoading(false);
+          return;
+        }
 
-        console.log("[Graph] data loaded, nodes:", data.nodes.length, "edges:", data.edges.length);
+        let data: GraphData | null = null;
+
+        // 1) Desktop mode: read analysis.json directly from local filesystem via Tauri
+        if (repoPath && "__TAURI__" in window) {
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const raw = await invoke<string>("read_file_content", {
+              repoPath,
+              filePath: ".code-wiki/analysis.json",
+            });
+            const parsed = JSON.parse(raw) as AnalysisData;
+            if (parsed.modules && Object.keys(parsed.modules).length > 0) {
+              data = transformAnalysis(parsed);
+            }
+          } catch { /* fall through to HTTP */ }
+        }
+
+        // 2) Browser dev mode: fetch from backend API
+        if (!data) {
+          const res = await fetch("/api/graph/data");
+          if (!res.ok) throw new Error(`${res.status}`);
+          data = await res.json();
+        }
+
         if (cancelled) return;
         if (!data || data.nodes.length === 0) {
           setError("暂无分析数据，请先扫描代码仓库");
           setLoading(false);
           return;
         }
-        console.log("[Graph] calling buildGraph");
-        buildGraph(data);
-        console.log("[Graph] buildGraph done");
+        _cachedGraphData = data;
+        _cacheTimestamp = Date.now();
+        setGraphData(data);
         setLoading(false);
       } catch (e: unknown) {
         if (!cancelled) {
@@ -73,7 +153,15 @@ export function KnowledgeGraph() {
       cyRef.current?.destroy();
       cyRef.current = null;
     };
-  }, []);
+  }, [repoPath]);
+
+  // ---- Initialize cytoscape when data is loaded AND container is mounted ----
+  useEffect(() => {
+    if (!graphData || !containerRef.current) return;
+    console.log("[Graph] container ready, building graph");
+    buildGraph(graphData);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphData]);
 
   // ---- Build cytoscape instance ----
   const buildGraph = useCallback((data: GraphData) => {
