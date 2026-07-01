@@ -186,12 +186,19 @@ export function KnowledgeGraph() {
             color: "#888",
             "text-max-width": "120px",
             "text-wrap": "ellipsis",
+            // Only show labels when zoomed in enough to read them
+            "text-opacity": 0,
             width: "mapData(entityCount, 1, 50, 18, 42)",
             height: "mapData(entityCount, 1, 50, 18, 42)",
             "border-width": 1.5,
             "border-color": "#fff",
-            "transition-property": "width, height",
-            "transition-duration": 200,
+          },
+        },
+        {
+          // Show labels at zoom ≥ 1.2
+          selector: "node.label-visible",
+          style: {
+            "text-opacity": 1,
           },
         },
         {
@@ -201,7 +208,9 @@ export function KnowledgeGraph() {
             "line-color": "#ccc",
             "target-arrow-color": "#ccc",
             "target-arrow-shape": "triangle",
-            "curve-style": "bezier",
+            // haystack is much faster than bezier for large graphs
+            "curve-style": "haystack",
+            "haystack-radius": 0.3,
             "arrow-scale": 0.6,
             opacity: 0.5,
           },
@@ -211,6 +220,7 @@ export function KnowledgeGraph() {
           style: {
             "border-color": "#f59e0b",
             "border-width": 3,
+            "text-opacity": 1,
           },
         },
         {
@@ -219,11 +229,12 @@ export function KnowledgeGraph() {
             "border-color": "#3b82f6",
             "border-width": 2.5,
             opacity: 1,
+            "text-opacity": 1,
           },
         },
         {
           selector: "node.dimmed",
-          style: { opacity: 0.15 },
+          style: { opacity: 0.15, "text-opacity": 0 },
         },
         {
           selector: "edge.dimmed",
@@ -238,11 +249,28 @@ export function KnowledgeGraph() {
           data: { source: e.source, target: e.target, type: e.type },
         })),
       ],
-      layout: { name: "cose", animate: false },
+      // Use preset positions from cose to avoid double-layout
+      layout: { name: "preset" },
       wheelSensitivity: 0.3,
-      minZoom: 0.1,
-      maxZoom: 3,
+      minZoom: 0.08,
+      maxZoom: 4,
+      // Performance: skip texture for tiny nodes
+      textureOnViewport: true,
+      pixelRatio: "auto",
     });
+
+    // After creation, attach zoom-based label toggle + run initial layout
+    const updateLabels = () => {
+      const z = cy.zoom();
+      if (z >= 1.2) {
+        cy.nodes().addClass("label-visible");
+      } else {
+        cy.nodes().removeClass("label-visible");
+      }
+    };
+    cy.on("zoom", updateLabels);
+    // Initial label state
+    updateLabels();
 
     // Click → select node
     cy.on("tap", "node", (evt) => {
@@ -255,17 +283,32 @@ export function KnowledgeGraph() {
     });
 
     cyRef.current = cy;
-    console.log("[Graph] cytoscape instance created, canvas:", cy.container()?.querySelector("canvas"));
+    console.log("[Graph] cytoscape instance created, nodes:", data.nodes.length, "edges:", data.edges.length);
+
+    // Run initial layout (cose for force-directed, works for any graph size)
+    runLayout(cy, "cose");
   }, []);
 
   // ---- Layout runner ----
   const runLayout = useCallback((cy: Core, name: LayoutName) => {
+    // Stop any running layout first
+    cy.layoutstop();
     cy.layout({
       name,
-      animate: true,
-      animationDuration: 600,
-      ...(name === "cose" ? { nodeRepulsion: 6000, idealEdgeLength: 80 } : {}),
-      ...(name === "breadthfirst" ? { directed: true, spacingFactor: 1.2 } : {}),
+      animate: name !== "cose", // cose is slow to animate; just compute
+      animationDuration: name === "cose" ? 0 : 400,
+      // cose: faster convergence for large graphs
+      ...(name === "cose"
+        ? {
+            nodeRepulsion: () => 4000,
+            idealEdgeLength: () => 60,
+            numIter: 1000,
+            coolingFactor: 0.95,
+            animate: false,
+            randomize: true,
+          }
+        : {}),
+      ...(name === "breadthfirst" ? { directed: true, spacingFactor: 1.2, animate: true } : {}),
       ...(name === "concentric"
         ? {
             concentric: (n: { data: (k: string) => unknown }) => {
@@ -274,8 +317,11 @@ export function KnowledgeGraph() {
               return order.indexOf(layer);
             },
             minNodeSpacing: 60,
+            animate: true,
           }
         : {}),
+      ...(name === "circle" ? { animate: true } : {}),
+      ...(name === "grid" ? { animate: true, rows: undefined } : {}),
     }).run();
   }, []);
 
@@ -287,34 +333,47 @@ export function KnowledgeGraph() {
     [runLayout]
   );
 
-  // ---- Search filter ----
+  // ---- Search filter (debounced) ----
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const applySearch = useCallback(
     (query: string) => {
       setSearch(query);
-      const cy = cyRef.current;
-      if (!cy) return;
+      // Debounce: only run filter 150ms after last keystroke
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = setTimeout(() => {
+        const cy = cyRef.current;
+        if (!cy) return;
 
-      const q = query.trim().toLowerCase();
-      if (!q) {
-        cy.nodes().removeClass("highlighted dimmed");
-        cy.edges().removeClass("dimmed");
-        return;
-      }
+        const q = query.trim().toLowerCase();
+        if (!q) {
+          cy.nodes().removeClass("highlighted dimmed");
+          cy.edges().removeClass("dimmed");
+          return;
+        }
 
-      const matched = cy.nodes().filter((n) => {
-        const label = ((n.data("label") as string) || "").toLowerCase();
-        return label.includes(q);
-      });
+        // Batch DOM updates for performance
+        cy.batch(() => {
+          const matched = cy.nodes().filter((n) => {
+            const label = ((n.data("label") as string) || "").toLowerCase();
+            return label.includes(q);
+          });
 
-      cy.nodes().addClass("dimmed");
-      cy.edges().addClass("dimmed");
-      matched.removeClass("dimmed").addClass("highlighted");
-
-      // Also show edges connected to matched nodes
-      matched.connectedEdges().removeClass("dimmed");
+          cy.nodes().addClass("dimmed");
+          cy.edges().addClass("dimmed");
+          matched.removeClass("dimmed").addClass("highlighted");
+          matched.connectedEdges().removeClass("dimmed");
+        });
+      }, 150);
     },
     []
   );
+
+  // Cleanup search timer on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
 
   // ---- Controls ----
   const zoomIn = () => cyRef.current?.zoom(cyRef.current.zoom() * 1.3);

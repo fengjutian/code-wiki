@@ -336,11 +336,58 @@ fn stop_watch_directory(watch_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// List all .md wiki files under .code-wiki/ directory, returning their relative paths.
+/// Used by the frontend to build the wiki tree without needing the HTTP API.
+#[derive(serde::Serialize)]
+struct WikiTreeItem {
+    path: String,
+    source_path: String,
+}
+
+#[tauri::command]
+fn list_wiki_pages(repo_path: String) -> Result<Vec<WikiTreeItem>, String> {
+    let wiki_dir = std::path::Path::new(&repo_path).join(".code-wiki");
+    if !wiki_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut items: Vec<WikiTreeItem> = Vec::new();
+    let base = wiki_dir.clone();
+
+    fn walk(dir: &std::path::Path, base: &std::path::Path, items: &mut Vec<WikiTreeItem>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                // Skip hidden dirs
+                if name.starts_with('.') && path.is_dir() { continue; }
+                if path.is_dir() {
+                    walk(&path, base, items);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                    let rel = path.strip_prefix(base).unwrap_or(&path).to_string_lossy().to_string();
+                    let source_path = rel
+                        .strip_suffix(".md")
+                        .unwrap_or(&rel)
+                        .to_string();
+                    items.push(WikiTreeItem {
+                        path: rel,
+                        source_path,
+                    });
+                }
+            }
+        }
+    }
+
+    walk(&wiki_dir, &base, &mut items);
+    items.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(items)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_in_editor, read_file_content, read_document_file, read_directory_files, start_watch_directory, stop_watch_directory])
+        .invoke_handler(tauri::generate_handler![open_in_editor, read_file_content, read_document_file, read_directory_files, start_watch_directory, stop_watch_directory, list_wiki_pages])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

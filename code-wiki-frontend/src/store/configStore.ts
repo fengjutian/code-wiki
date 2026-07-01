@@ -327,7 +327,26 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   },
 
   fetchWikiTree: async () => {
+    const repoPath = get().repoPath;
     try {
+      // Desktop mode: list wiki .md files directly from local filesystem
+      if (repoPath && "__TAURI__" in window) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const items = await invoke<Array<{ path: string; source_path: string }>>(
+            "list_wiki_pages", { repoPath }
+          );
+          const tree: WikiTreeNode[] = items.map((item) => ({
+            name: item.source_path.split("/").pop() || item.source_path,
+            path: item.path,
+            type: "file" as const,
+            sourcePath: item.source_path,
+          }));
+          set({ wikiTree: tree });
+          return;
+        } catch { /* fall through to HTTP */ }
+      }
+      // Browser dev mode: HTTP API
       const res = await fetch("/api/wiki/tree");
       if (res.ok) {
         const tree: WikiTreeNode[] = await res.json();
