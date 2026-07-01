@@ -45,7 +45,7 @@ function saveLLMToLocal(llm: LLMConfig) {
 // ---- Store Shape ----
 interface ConfigState {
   // Tab
-  activeTab: "code" | "wiki" | "analysis" | "settings" | "graph";
+  activeTab: "code" | "wiki" | "analysis" | "settings" | "graph" | "test";
   setActiveTab: (tab: ConfigState["activeTab"]) => void;
 
   // Chat

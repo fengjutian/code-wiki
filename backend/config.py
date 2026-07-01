@@ -16,6 +16,12 @@ def _to_native_path(path_str: str) -> str:
         return f"/mnt/{drive}{rest}"
     return path_str.replace("\\", "/")
 
+
+# ---- Bootstrap config path (always in the backend's own directory) ----
+_BACKEND_DIR = Path(__file__).resolve().parent
+_BOOTSTRAP_CONFIG = _BACKEND_DIR / ".code-wiki" / "config.json"
+
+
 # ---- Global config (in-memory, persisted to .code-wiki/config.json) ----
 _config: dict = {
     "repo_path": "",
@@ -34,17 +40,18 @@ _config: dict = {
     "theme": "system",
 }
 
-# Look for config in CWD (or its parent) as a fallback when repo_path is not yet known
+
 def _find_config_in_cwd() -> Path | None:
     """Search for .code-wiki/config.json in common locations.
     
-    This is needed because _get_config_path() requires repo_path to be set,
-    but repo_path is only loaded from the config file — a chicken-and-egg
-    problem solved by broadly searching known locations.
+    Searches: CWD, CWD parent, and the backend module directory.
+    The bootstrap config in the backend directory breaks the chicken-and-egg
+    problem: repo_path is saved there so it can survive a restart.
     """
     candidates = [
         Path.cwd() / ".code-wiki" / "config.json",
         Path.cwd().parent / ".code-wiki" / "config.json",
+        _BACKEND_DIR / ".code-wiki" / "config.json",
     ]
     for c in candidates:
         if c.exists():
@@ -80,36 +87,68 @@ def get_wiki_path() -> Path:
 
 
 def _get_config_path() -> Path | None:
+    """Return the primary config path for the current repo, or fallback to bootstrap."""
     repo = _config.get("repo_path", "")
     if repo:
         return Path(_to_native_path(repo)) / ".code-wiki" / "config.json"
-    # Fallback: search CWD and parent for config.json
+    # Fallback: search CWD, parent, and backend dir for any config.json
     cwd_config = _find_config_in_cwd()
     if cwd_config:
         return cwd_config
-    return None
+    # If nothing exists yet, default to bootstrap location so we can at least save
+    return _BOOTSTRAP_CONFIG
 
 
 def load_config_from_disk():
-    """Try to load config from repo's .code-wiki/config.json."""
+    """Try to load config from repo's .code-wiki/config.json.
+    
+    Load order:
+      1. Bootstrap config in backend/ dir (always checked first to recover repo_path)
+      2. If repo_path is now known, also load from {repo_path}/.code-wiki/config.json
+         (the repo-specific config may have more recent settings)
+    """
     global _config
-    path = _get_config_path()
-    if path and path.exists():
+    # Step 1: always try bootstrap config to recover repo_path
+    if _BOOTSTRAP_CONFIG.exists():
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(_BOOTSTRAP_CONFIG, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             _config.update(saved)
         except (json.JSONDecodeError, IOError):
             pass
+    # Step 2: if repo_path is now set, also load from repo's own config
+    repo = _config.get("repo_path", "")
+    if repo:
+        repo_config = Path(_to_native_path(repo)) / ".code-wiki" / "config.json"
+        if repo_config.exists() and repo_config != _BOOTSTRAP_CONFIG:
+            try:
+                with open(repo_config, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                _config.update(saved)
+            except (json.JSONDecodeError, IOError):
+                pass
 
 
 def save_config_to_disk():
-    """Persist config to .code-wiki/config.json (excluding api_key)."""
-    path = _get_config_path()
-    if not path:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Persist config to both the bootstrap location and the repo-specific location.
+    
+    The bootstrap copy (backend/.code-wiki/config.json) ensures repo_path survives
+    a restart. The repo copy ({repo_path}/.code-wiki/config.json) is for portability.
+    Both copies exclude api_key for security.
+    """
     to_save = {k: v for k, v in _config.items() if k != "llm"}
     to_save["llm"] = {k: v for k, v in _config["llm"].items() if k != "api_key"}
-    with open(path, "w", encoding="utf-8") as f:
+
+    # Always write to bootstrap location
+    _BOOTSTRAP_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    with open(_BOOTSTRAP_CONFIG, "w", encoding="utf-8") as f:
         json.dump(to_save, f, indent=2, ensure_ascii=False)
+
+    # Also write to repo-specific location if repo_path is set
+    repo = _config.get("repo_path", "")
+    if repo:
+        repo_config = Path(_to_native_path(repo)) / ".code-wiki" / "config.json"
+        if repo_config != _BOOTSTRAP_CONFIG:
+            repo_config.parent.mkdir(parents=True, exist_ok=True)
+            with open(repo_config, "w", encoding="utf-8") as f:
+                json.dump(to_save, f, indent=2, ensure_ascii=False)

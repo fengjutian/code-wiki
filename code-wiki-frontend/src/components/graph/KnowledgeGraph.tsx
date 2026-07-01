@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import cytoscape, { type Core } from "cytoscape";
-import { useConfigStore } from "@/store/configStore";
 import { Search, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 
 // ---- Layout presets ----
@@ -49,14 +48,18 @@ export function KnowledgeGraph() {
       try {
         const res = await fetch("/api/graph/data");
         if (!res.ok) throw new Error(`${res.status}`);
-        const data: GraphData = await res.json();
+        const data = await res.json() as GraphData;
+
+        console.log("[Graph] data loaded, nodes:", data.nodes.length, "edges:", data.edges.length);
         if (cancelled) return;
-        if (data.nodes.length === 0) {
+        if (!data || data.nodes.length === 0) {
           setError("暂无分析数据，请先扫描代码仓库");
           setLoading(false);
           return;
         }
+        console.log("[Graph] calling buildGraph");
         buildGraph(data);
+        console.log("[Graph] buildGraph done");
         setLoading(false);
       } catch (e: unknown) {
         if (!cancelled) {
@@ -74,8 +77,10 @@ export function KnowledgeGraph() {
 
   // ---- Build cytoscape instance ----
   const buildGraph = useCallback((data: GraphData) => {
+    console.log("[Graph] buildGraph called, containerRef:", containerRef.current);
     if (!containerRef.current) return;
 
+    console.log("[Graph] creating cytoscape instance...");
     // Destroy previous instance
     cyRef.current?.destroy();
 
@@ -162,10 +167,8 @@ export function KnowledgeGraph() {
     });
 
     cyRef.current = cy;
-
-    // Apply initial layout
-    runLayout(cy, layout);
-  }, [layout]);
+    console.log("[Graph] cytoscape instance created, canvas:", cy.container()?.querySelector("canvas"));
+  }, []);
 
   // ---- Layout runner ----
   const runLayout = useCallback((cy: Core, name: LayoutName) => {
@@ -247,7 +250,7 @@ export function KnowledgeGraph() {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full min-h-0 flex flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 p-2 border-b border-border shrink-0 flex-wrap">
         {/* Layout selector */}
@@ -322,8 +325,8 @@ export function KnowledgeGraph() {
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 relative">
-        <div ref={containerRef} className="absolute inset-0" />
+      <div className="flex-1 min-h-0 relative">
+        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
         {/* Selected node info */}
         {selectedNode && (
