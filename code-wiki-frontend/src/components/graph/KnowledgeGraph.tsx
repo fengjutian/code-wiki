@@ -208,9 +208,7 @@ export function KnowledgeGraph() {
             "line-color": "#ccc",
             "target-arrow-color": "#ccc",
             "target-arrow-shape": "triangle",
-            // haystack is much faster than bezier for large graphs
-            "curve-style": "haystack",
-            "haystack-radius": 0.3,
+            "curve-style": "bezier",
             "arrow-scale": 0.6,
             opacity: 0.5,
           },
@@ -251,7 +249,6 @@ export function KnowledgeGraph() {
       ],
       // Use preset positions from cose to avoid double-layout
       layout: { name: "preset" },
-      wheelSensitivity: 0.3,
       minZoom: 0.08,
       maxZoom: 4,
       // Performance: skip texture for tiny nodes
@@ -292,19 +289,19 @@ export function KnowledgeGraph() {
   // ---- Layout runner ----
   const runLayout = useCallback((cy: Core, name: LayoutName) => {
     // Stop any running layout first
-    cy.layoutstop();
+    cy.stop();
     cy.layout({
       name,
-      animate: name !== "cose", // cose is slow to animate; just compute
-      animationDuration: name === "cose" ? 0 : 400,
-      // cose: faster convergence for large graphs
+      animate: true,
+      animationDuration: 400,
+      // cose: better convergence for large graphs
       ...(name === "cose"
         ? {
             nodeRepulsion: () => 4000,
             idealEdgeLength: () => 60,
             numIter: 1000,
             coolingFactor: 0.95,
-            animate: false,
+            animate: true,
             randomize: true,
           }
         : {}),
