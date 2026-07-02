@@ -11,6 +11,8 @@ import { MetricsPanel } from "@/components/metrics/MetricsPanel";
 import { CFGPanel } from "@/components/metrics/CFGPanel";
 import { SearchPanel } from "@/components/metrics/SearchPanel";
 import { ImpactPanel } from "@/components/metrics/ImpactPanel";
+import { GuidePanel } from "@/components/guide/GuidePanel";
+import { SchemaPanel } from "@/components/schema/SchemaPanel";
 import { ChatDrawer } from "@/components/chat/ChatDrawer";
 import { ChatRuntimeProvider } from "@/components/assistant-ui";
 import { useState, useEffect, useRef } from "react";
@@ -50,6 +52,8 @@ export function AppShell() {
             {activeTab === "cfg" && <CFGPanel />}
             {activeTab === "search" && <SearchPanel />}
             {activeTab === "impact" && <ImpactPanel />}
+            {activeTab === "guide" && <GuidePanel />}
+            {activeTab === "schema" && <SchemaPanel />}
           </main>
           <ChatDrawer />
         </div>
