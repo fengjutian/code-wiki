@@ -121,6 +121,19 @@ class AnalysisRepository:
         """Save taint analysis results."""
         self._write_json(self._wiki / "taint_analysis.json", data)
 
+    # ---- Schema ----
+
+    def load_schema(self) -> Optional[dict]:
+        """Load cached schema data."""
+        return self._read_json(self._wiki / "schema.json")
+
+    def save_schema(self, data: dict) -> None:
+        """Cache schema analysis to avoid recomputation."""
+        self._write_json(self._wiki / "schema.json", data)
+
+    def schema_exists(self) -> bool:
+        return (self._wiki / "schema.json").exists()
+
     # ---- Generic helpers ----
 
     def analysis_exists(self) -> bool:

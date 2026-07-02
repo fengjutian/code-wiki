@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useConfigStore } from "@/store/configStore";
 import { DatabaseIcon, Table2Icon, Link2Icon, KeyIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
 
 interface Column {
@@ -52,9 +53,34 @@ export function SchemaPanel() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/schema");
-        if (!res.ok) throw new Error(`${res.status}`);
-        setData(await res.json());
+        let schemaData: SchemaData | null = null;
+
+        // Desktop mode: read cached schema.json directly from local filesystem
+        if ("__TAURI__" in window) {
+          const repoPath = useConfigStore.getState().repoPath;
+          if (repoPath) {
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              const raw = await invoke<string>("read_file_content", {
+                repoPath,
+                filePath: ".code-wiki/schema.json",
+              });
+              const parsed = JSON.parse(raw);
+              if (parsed && parsed.tables) {
+                schemaData = parsed;
+              }
+            } catch { /* fall through to HTTP */ }
+          }
+        }
+
+        // Browser dev mode / fallback: HTTP API
+        if (!schemaData) {
+          const res = await fetch("/api/schema");
+          if (!res.ok) throw new Error(`${res.status}`);
+          schemaData = await res.json();
+        }
+
+        setData(schemaData);
       } catch (e) {
         setError(`加载失败: ${e instanceof Error ? e.message : "未知错误"}`);
       } finally {

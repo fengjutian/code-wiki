@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from config import get_wiki_path, get_config
+from repositories.analysis_repo import AnalysisRepository
 
 logger = logging.getLogger("code-wiki.schema")
 
@@ -370,10 +371,21 @@ async def get_schema():
                         })
                         break
 
-    return {
+    result = {
         "status": "ok",
         "tables": unique_tables,
         "edges": edges,
         "total_tables": len(unique_tables),
         "total_relationships": len(edges),
     }
+
+    # Cache to .code-wiki/schema.json for Tauri local loading
+    try:
+        wiki_path = get_wiki_path()
+        if wiki_path and wiki_path.exists():
+            repo = AnalysisRepository(wiki_path)
+            repo.save_schema(result)
+    except Exception:
+        pass
+
+    return result
