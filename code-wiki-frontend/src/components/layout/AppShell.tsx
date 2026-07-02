@@ -7,6 +7,7 @@ import { WikiPanel } from "@/components/wiki/WikiPanel";
 import { AnalysisPanel } from "@/components/analysis/AnalysisPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { KnowledgeGraph } from "@/components/graph/KnowledgeGraph";
+import { MetricsPanel } from "@/components/metrics/MetricsPanel";
 import { ChatDrawer } from "@/components/chat/ChatDrawer";
 import { ChatRuntimeProvider } from "@/components/assistant-ui";
 import { useState, useEffect, useRef } from "react";
@@ -42,6 +43,7 @@ export function AppShell() {
             {activeTab === "analysis" && <AnalysisPanel />}
             {activeTab === "settings" && <SettingsPanel />}
             {activeTab === "graph" && <KnowledgeGraph />}
+            {activeTab === "metrics" && <MetricsPanel />}
           </main>
           <ChatDrawer />
         </div>

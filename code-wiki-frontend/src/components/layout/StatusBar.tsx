@@ -16,6 +16,8 @@ export function StatusBar() {
           const data = await res.json();
           if (typeof data.health_score === "number") {
             setHealthScore(Math.round(data.health_score));
+          } else {
+            setHealthScore(null);  // No data yet
           }
         }
       } catch { /* ignore */ }

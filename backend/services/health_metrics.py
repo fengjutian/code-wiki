@@ -126,34 +126,51 @@ class HealthMetricsCalculator:
         return metrics
 
     def _compute_score(self, m: HealthMetrics) -> float:
-        """Weighted composite health score (0-100, higher = healthier)."""
+        """Weighted composite health score (0-100, higher = healthier).
+
+        Scoring tiers designed so that a typical well-maintained project scores
+        70-85; excellent codebases 90+; and problematic ones < 50.
+        """
         score = 100.0
 
-        # Complexity penalty
-        if m.avg_cyclomatic_complexity > 10:
-            score -= min(20, (m.avg_cyclomatic_complexity - 10) * 2)
+        # ---- Complexity penalty (cyclomatic complexity) ----
+        # CC 1-5: excellent, 6-10: good, 11-20: moderate, >20: complex
+        if m.avg_cyclomatic_complexity > 0:
+            # Base penalty: each point of avg CC above 3 costs 2 points
+            excess = max(0, m.avg_cyclomatic_complexity - 3)
+            score -= min(25, excess * 2)
 
-        # Max complexity penalty
-        if m.max_cyclomatic_complexity > 20:
-            score -= min(15, (m.max_cyclomatic_complexity - 20) * 0.5)
+        # Max CC: extremely complex functions are a risk
+        if m.max_cyclomatic_complexity > 10:
+            score -= min(15, (m.max_cyclomatic_complexity - 10) * 0.8)
 
-        # Coupling penalty
-        if m.avg_coupling > 5:
-            score -= min(10, (m.avg_coupling - 5))
+        # ---- Coupling penalty ----
+        # Coupling 0-3: loose, 4-8: moderate, >8: tight
+        if m.avg_coupling > 0:
+            excess = max(0, m.avg_coupling - 3)
+            score -= min(15, excess * 2)
 
-        # Isolation penalty (many isolated functions = poor design)
-        if m.total_functions > 0 and m.isolated_modules / m.total_functions > 0.3:
-            score -= 10
+        if m.max_coupling > 5:
+            score -= min(10, (m.max_coupling - 5))
 
-        # Dead code penalty
+        # ---- Isolation penalty ----
+        # Many functions with zero callers/callees → poor cohesion
+        if m.total_functions > 0 and m.isolated_modules / m.total_functions > 0.2:
+            score -= 8
+
+        # ---- Dead code penalty ----
         if m.dead_code_blocks > 0:
-            score -= min(10, m.dead_code_blocks * 2)
+            score -= min(10, m.dead_code_blocks * 3)
 
-        # Coverage bonus
+        # ---- Size penalty (very large projects are harder to maintain) ----
+        if m.total_lines > 50000:
+            score -= min(5, (m.total_lines / 100000) * 5)
+
+        # ---- Coverage bonus ----
         if m.test_coverage > 0:
-            score += min(10, m.test_coverage * 10)
+            score += min(15, m.test_coverage * 15)
 
-        # Churn penalty
+        # ---- Churn penalty ----
         if m.churn_rate:
             high_churn = sum(1 for v in m.churn_rate.values() if v > 10)
             score -= min(10, high_churn * 2)

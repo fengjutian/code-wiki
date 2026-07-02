@@ -12,6 +12,7 @@ Endpoints:
 
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -214,7 +215,8 @@ async def get_health_metrics():
         return {
             "total_modules": 0, "total_functions": 0, "total_classes": 0,
             "total_lines": 0, "avg_cyclomatic_complexity": 0,
-            "health_score": 100, "hotspots": [],
+            "health_score": None, "hotspots": [],
+            "note": "尚未运行代码分析。请先在「分析」页面扫描仓库。",
         }
 
     try:
@@ -246,6 +248,61 @@ async def get_health_metrics():
         )
         health.total_functions = func_count
         health.total_classes = class_count
+
+        # ---- Compute coupling from dependency graph ----
+        dep_graph = analysis.get("dependency_graph", {})
+        edges_list = dep_graph.get("edges", [])
+        total_edges = sum(len(e.get("targets", [])) for e in edges_list)
+        if func_count > 0:
+            health.avg_coupling = round(total_edges / max(func_count, 1), 1)
+        else:
+            health.avg_coupling = 0
+        health.max_coupling = max(
+            (len(e.get("targets", [])) for e in edges_list), default=0
+        )
+
+        # ---- Estimate complexity from available data ----
+        # Note: analysis.json may not include end_line for all functions.
+        # Use signature-based heuristics as a more robust fallback.
+        complexities = []
+        for mod in modules_info.values():
+            for fn in mod.get("functions", []):
+                cc = 1.0
+                if fn.get("docstring"):
+                    cc += 1
+                sig = fn.get("signature", "")
+                if sig:
+                    paren_start = sig.find("(")
+                    paren_end = sig.find(")")
+                    if paren_start >= 0 and paren_end > paren_start:
+                        params_str = sig[paren_start + 1:paren_end].strip()
+                        if params_str and params_str != "self":
+                            cc += params_str.count(",") * 0.5 + 0.5
+                complexities.append(cc)
+            for cls in mod.get("classes", []):
+                for method in cls.get("methods", []):
+                    cc = 2.0
+                    if method.get("docstring"):
+                        cc += 1
+                    sig = method.get("signature", "")
+                    if sig:
+                        paren_start = sig.find("(")
+                        paren_end = sig.find(")")
+                        if paren_start >= 0 and paren_end > paren_start:
+                            params_str = sig[paren_start + 1:paren_end].strip()
+                            if params_str and params_str not in ("self", "cls"):
+                                real_params = [p for p in params_str.split(",") if p.strip() not in ("self", "cls")]
+                                cc += len(real_params) * 0.5
+                    complexities.append(cc)
+
+        if complexities:
+            health.avg_cyclomatic_complexity = round(
+                sum(complexities) / len(complexities), 1
+            )
+            health.max_cyclomatic_complexity = int(max(complexities))
+
+        # ---- Recompute health score with actual data ----
+        health.overall_health_score = calc._compute_score(health)
 
         result = {
             "total_modules": health.total_modules,
@@ -476,7 +533,7 @@ async def get_impact_analysis(
 
 @search_router.get("/pattern")
 async def search_pattern(
-    pattern: str = Query(..., description="Pattern name (see list) or custom regex"),
+    pattern: str = Query("", description="Pattern name (see list) or custom regex"),
     list_patterns: bool = Query(False, description="List available patterns"),
     query: Optional[str] = Query(None, description="Custom regex query (overrides pattern)"),
 ):
@@ -513,3 +570,81 @@ async def search_pattern(
         return {"results": results, "pattern": pattern, "count": len(results)}
     except ImportError:
         return {"results": [], "error": "code_search module not available"}
+
+
+# ---------------------------------------------------------------------------
+# CFG (Control Flow Graph)
+# ---------------------------------------------------------------------------
+
+@metrics_router.get("/cfg")
+async def get_cfg(
+    file: str = Query(..., description="Relative file path, e.g. services/auth.py"),
+    function: str = Query(..., description="Function name to generate CFG for"),
+):
+    """
+    Return Control Flow Graph for a specific function as JSON + Mermaid.
+
+    Response: {function_name, cyclomatic_complexity, nesting_depth, blocks_count,
+               unreachable_blocks, mermaid}
+    """
+    from config import get_config
+    cfg = get_config()
+    repo_path = cfg.get("repo_path", "")
+
+    if not repo_path or not os.path.exists(os.path.join(repo_path, file)):
+        return {"error": "File not found", "file": file}
+
+    # Read source
+    full_path = os.path.join(repo_path, file)
+    source = Path(full_path).read_text(encoding="utf-8", errors="replace")
+
+    try:
+        from services.data_flow import CFGBuilder
+        from tree_sitter import Language, Parser
+        from tree_sitter_python import language as python_lang
+
+        lang = Language(python_lang())
+        parser = Parser(lang)
+        tree = parser.parse(source.encode("utf-8"))
+
+        # Find the target function node
+        fn_node = None
+        for child in tree.root_node.children:
+            if child.type == "function_definition":
+                for c in child.children:
+                    if c.type == "identifier":
+                        name = source[c.start_byte:c.end_byte]
+                        if name == function:
+                            fn_node = child
+                            break
+                if fn_node:
+                    break
+            elif child.type == "decorated_definition":
+                for sub in child.children:
+                    if sub.type == "function_definition":
+                        for c in sub.children:
+                            if c.type == "identifier":
+                                if source[c.start_byte:c.end_byte] == function:
+                                    fn_node = sub
+                                    break
+                if fn_node:
+                    break
+
+        if fn_node is None:
+            return {"error": f"Function '{function}' not found in {file}"}
+
+        builder = CFGBuilder()
+        cfg = builder.build(fn_node, source, function)
+
+        return {
+            "function_name": cfg.function_name,
+            "cyclomatic_complexity": cfg.cyclomatic_complexity,
+            "nesting_depth": cfg.max_nesting_depth,
+            "blocks_count": len(cfg.blocks),
+            "unreachable_blocks": cfg.unreachable_blocks,
+            "mermaid": cfg.to_mermaid(f"CFG: {function}"),
+        }
+    except ImportError as e:
+        return {"error": f"CFG module not available: {e}"}
+    except Exception as e:
+        return {"error": str(e)}
