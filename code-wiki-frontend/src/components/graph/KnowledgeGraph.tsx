@@ -96,7 +96,6 @@ export function KnowledgeGraph() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const repoPath = useConfigStore((s) => s.repoPath);
-  const wikiPath = useConfigStore((s) => s.wikiPath);
   const [layout, setLayout] = useState<LayoutName>("cose");
   const [search, setSearch] = useState("");
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
@@ -380,7 +379,7 @@ export function KnowledgeGraph() {
   );
 
   // ---- Search filter (debounced) ----
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const applySearch = useCallback(
     (query: string) => {
       setSearch(query);

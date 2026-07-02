@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   BookOpenIcon, LayersIcon, MapPinIcon, StarIcon,
-  FolderTreeIcon, HashIcon, FootprintsIcon, ArrowRightIcon,
+  FolderTreeIcon, HashIcon, FootprintsIcon,
 } from "lucide-react";
 
 interface TourStep {

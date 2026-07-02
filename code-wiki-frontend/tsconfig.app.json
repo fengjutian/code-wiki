@@ -25,7 +25,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* Suppress TS5.x deprecation warnings for Tauri build */
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src"]
 }
