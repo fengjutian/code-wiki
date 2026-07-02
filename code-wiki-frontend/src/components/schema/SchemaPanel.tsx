@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { DatabaseIcon, Table2Icon, Link2Icon, KeyIcon, SearchIcon, UsersIcon } from "lucide-react";
+import { DatabaseIcon, Table2Icon, Link2Icon, KeyIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
 
 interface Column {
   name: string;
@@ -45,9 +45,9 @@ export function SchemaPanel() {
   const [data, setData] = useState<SchemaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showOrmOnly, setShowOrmOnly] = useState(false);
+  const [modalTable, setModalTable] = useState<TableDef | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -82,17 +82,7 @@ export function SchemaPanel() {
     );
   }
 
-  // Build adjacency maps
-  const forwardEdges = new Map<string, SchemaEdge[]>();
-  const reverseEdges = new Map<string, SchemaEdge[]>();
-  for (const edge of data.edges) {
-    if (!forwardEdges.has(edge.source)) forwardEdges.set(edge.source, []);
-    forwardEdges.get(edge.source)!.push(edge);
-    if (!reverseEdges.has(edge.target)) reverseEdges.set(edge.target, []);
-    reverseEdges.get(edge.target)!.push(edge);
-  }
-
-  // Filter: search + ORM toggle + selected table
+  // Filter: search + ORM toggle
   const q = search.toLowerCase();
   let shownTables = data.tables.filter((t) => {
     if (showOrmOnly && t.type !== "orm") return false;
@@ -108,17 +98,6 @@ export function SchemaPanel() {
     }
     return true;
   });
-
-  if (selectedTable) {
-    const selName = selectedTable;
-    shownTables = shownTables.filter((t) => {
-      if (t.name === selName) return true;
-      return (
-        (forwardEdges.get(selName) || []).some((e) => e.target === t.name) ||
-        (reverseEdges.get(selName) || []).some((e) => e.source === t.name)
-      );
-    });
-  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -154,38 +133,21 @@ export function SchemaPanel() {
           />
           仅 ORM
         </label>
-
-        {selectedTable && (
-          <button
-            onClick={() => setSelectedTable(null)}
-            className="text-[11px] px-2 py-1 rounded bg-secondary hover:bg-accent transition-colors"
-          >
-            清除选择
-          </button>
-        )}
       </div>
 
       {/* Table Grid */}
       <div className="flex-1 overflow-auto p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {shownTables.map((table) => {
-            const relatedOut = forwardEdges.get(table.name) || [];
-            const relatedIn = reverseEdges.get(table.name) || [];
-            const isSelected = table.name === selectedTable;
-
             return (
               <div
                 key={table.name}
-                onClick={() => setSelectedTable(isSelected ? null : table.name)}
-                className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                  isSelected
-                    ? "border-primary bg-primary/5 ring-1 ring-primary"
-                    : "border-border bg-card hover:bg-accent/30"
-                }`}
+                onClick={() => setModalTable(table)}
+                className="p-3 rounded-xl border cursor-pointer transition-all border-border bg-card hover:bg-accent/30"
               >
                 {/* Header */}
                 <div className="flex items-center gap-1.5 mb-2">
-                  <Table2Icon size={13} className={isSelected ? "text-primary" : "text-muted-foreground"} />
+                  <Table2Icon size={13} className="text-muted-foreground" />
                   <span className="font-mono text-xs font-medium truncate flex-1">{table.name}</span>
                   <span
                     className={`shrink-0 px-1 py-0.5 rounded text-[8px] ${
@@ -270,6 +232,130 @@ export function SchemaPanel() {
           </div>
         )}
       </div>
+
+      {/* Modal — table detail */}
+      {modalTable && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setModalTable(null)}
+        >
+          <div
+            className="bg-card border border-border rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center gap-3 p-4 border-b border-border">
+              <Table2Icon size={18} className="text-primary" />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-semibold text-sm">{modalTable.name}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] ${
+                    modalTable.type === "sql" ? "bg-blue-500/10 text-blue-600" : "bg-purple-500/10 text-purple-600"
+                  }`}>
+                    {modalTable.type === "sql" ? "SQL" : "ORM"}
+                  </span>
+                </div>
+                {modalTable.class_name && (
+                  <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                    class {modalTable.class_name}
+                    {modalTable.bases && modalTable.bases.length > 0 && (
+                      <span> ({modalTable.bases.join(", ")})</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setModalTable(null)}
+                className="p-1 rounded hover:bg-accent transition-colors"
+              >
+                <XIcon size={16} />
+              </button>
+            </div>
+
+            {/* Modal body — columns */}
+            <div className="flex-1 overflow-auto p-4 space-y-3">
+              {/* Columns table */}
+              {modalTable.columns.length > 0 ? (
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-2">列定义 ({modalTable.columns.length})</h3>
+                  <div className="border border-border rounded-lg overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-secondary/50">
+                          <th className="text-left p-2 font-medium text-muted-foreground">列名</th>
+                          <th className="text-left p-2 font-medium text-muted-foreground">类型</th>
+                          <th className="text-center p-2 font-medium text-muted-foreground w-12">主键</th>
+                          <th className="text-center p-2 font-medium text-muted-foreground w-12">可空</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {modalTable.columns.map((col) => (
+                          <tr key={col.name} className="border-t border-border">
+                            <td className="p-2 font-mono">{col.name}</td>
+                            <td className="p-2 text-muted-foreground font-mono">{col.type}</td>
+                            <td className="p-2 text-center">
+                              {col.primary_key ? <KeyIcon size={12} className="text-amber-500 inline" /> : "—"}
+                            </td>
+                            <td className="p-2 text-center text-muted-foreground">
+                              {col.nullable ? "✓" : "✗"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground text-center py-4">
+                  暂无列详情（源码解析需要仓库文件可访问）
+                </div>
+              )}
+
+              {/* Foreign Keys */}
+              {modalTable.foreign_keys.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-2">外键 ({modalTable.foreign_keys.length})</h3>
+                  <div className="space-y-1">
+                    {modalTable.foreign_keys.map((fk, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs p-2 rounded bg-secondary/50">
+                        <Link2Icon size={11} className="text-primary shrink-0" />
+                        <code className="font-mono">{fk.column}</code>
+                        <span className="text-muted-foreground">→</span>
+                        <code className="font-mono text-primary">{fk.referenced_table}.{fk.referenced_column}</code>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ORM Relationships */}
+              {modalTable.relationships && modalTable.relationships.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-2">ORM 关联 ({modalTable.relationships.length})</h3>
+                  <div className="space-y-1">
+                    {modalTable.relationships.map((rel, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs p-2 rounded bg-secondary/50">
+                        <UsersIcon size={11} className="text-green-500 shrink-0" />
+                        <code className="font-mono">{rel.name}</code>
+                        <span className="text-muted-foreground">→</span>
+                        <code className="font-mono text-green-600">{rel.target}</code>
+                        {rel.back_populates && (
+                          <code className="text-[10px] text-muted-foreground">.{rel.back_populates}</code>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Source */}
+              <div className="text-[10px] text-muted-foreground pt-2 border-t border-border">
+                源文件: <code className="font-mono">{modalTable.source}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -563,23 +563,24 @@ async def search_pattern(
 
     analysis = _load_analysis()
     if not analysis:
-        return {"results": [], "note": "No analysis data available."}
+        return {"results": [], "note": "尚未运行代码分析。请先在「分析」页面扫描仓库。"}
+
+    repo_path = get_config().get("repo_path", "")
+    if not repo_path or not os.path.isdir(repo_path):
+        return {"results": [], "note": f"仓库路径不可访问: {repo_path}"}
 
     try:
         from services.code_search import CodePatternSearch
-        from config import get_config
-        
+
         cs = CodePatternSearch()
-        repo_path = get_config().get("repo_path", "")
-        
+        file_paths = list(analysis.get("modules", {}).keys())
+        if not file_paths:
+            return {"results": [], "note": "分析数据中没有模块信息。"}
+
         if query:
-            # Custom regex search — use file paths from analysis.json
-            file_paths = list(analysis.get("modules", {}).keys())
             results = cs.search_custom_by_paths(repo_path, file_paths, query)
             return {"results": results, "query": query, "count": len(results)}
 
-        # Named pattern search — use file paths from analysis.json
-        file_paths = list(analysis.get("modules", {}).keys())
         results = cs.search_by_paths(repo_path, file_paths, pattern)
         return {"results": results, "pattern": pattern, "count": len(results)}
     except ImportError:
