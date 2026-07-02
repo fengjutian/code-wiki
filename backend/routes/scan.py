@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from config import _config, get_wiki_path
+from repositories.analysis_repo import AnalysisRepository
 from services.scanner import Scanner
 from services.analyzer import Analyzer
 from services.dependency_graph import DependencyGraph
@@ -397,89 +398,13 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
 
 def _save_analysis_results(
     modules: dict,
-    dep_graph: DependencyGraph,
+    dep_graph,
     call_graph_data,
     mode: str,
 ):
-    """Persist analysis output to wiki directory."""
-    wiki_dir = get_wiki_path()
-    wiki_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save structured analysis data (for later Wiki generation)
-    analysis_data = {
-        "mode": mode,
-        "analyzed_at": datetime.now().isoformat(),
-        "modules": {},
-        "dependency_graph": {
-            "edges": [
-                {"source": src, "targets": tgts}
-                for src, tgts in dep_graph.get_topology()
-            ],
-            "stats": dep_graph.stats,
-        },
-    }
-
-    for path, module in modules.items():
-        analysis_data["modules"][path] = _module_to_dict(module)
-
-    # Write to analysis.json
-    analysis_path = wiki_dir / "analysis.json"
-    with open(analysis_path, "w", encoding="utf-8") as f:
-        json.dump(analysis_data, f, indent=2, ensure_ascii=False, default=str)
-
-    # Save call graph
-    if call_graph_data is not None:
-        cg_path = wiki_dir / "call_graph.json"
-        cg_dict = _call_graph_to_dict(call_graph_data)
-        with open(cg_path, "w", encoding="utf-8") as f:
-            json.dump(cg_dict, f, indent=2, ensure_ascii=False, default=str)
-        logger.info(f"Call graph saved: {cg_path}")
-
-    # Also save Mermaid diagrams
-    mermaid_dir = wiki_dir / "diagrams"
-    mermaid_dir.mkdir(exist_ok=True)
-
-    with open(mermaid_dir / "architecture.mmd", "w", encoding="utf-8") as f:
-        f.write(dep_graph.to_architecture_mermaid())
-
-    with open(mermaid_dir / "dependencies.mmd", "w", encoding="utf-8") as f:
-        f.write(dep_graph.to_mermaid())
-
-
-def _call_graph_to_dict(cg) -> dict:
-    """Serialize CallGraphData to a JSON-safe dict."""
-    callables = {}
-    for eid, entity in cg.callables.items():
-        callables[eid] = {
-            "id": entity.id,
-            "name": entity.name,
-            "module": entity.module,
-            "parent_class": entity.parent_class,
-            "kind": entity.kind,
-            "anchor": {
-                "file": entity.anchor.file,
-                "line": entity.anchor.line,
-            } if entity.anchor else None,
-            "end_line": entity.end_line,
-        }
-    unresolved = [
-        {
-            "caller_id": e.caller_id,
-            "callee_id": e.callee_id,
-            "resolved": e.resolved,
-            "call_site": {
-                "file": e.call_site.file,
-                "line": e.call_site.line,
-            } if e.call_site else None,
-        }
-        for e in cg.unresolved_calls
-    ]
-    return {
-        "callables": callables,
-        "forward": cg.forward,
-        "reverse": cg.reverse,
-        "unresolved_calls": unresolved,
-    }
+    """Persist analysis output using AnalysisRepository."""
+    repo = AnalysisRepository(get_wiki_path())
+    repo.save_analysis(modules, dep_graph, call_graph_data, mode)
 
 
 def _write_state(
@@ -510,78 +435,3 @@ def _write_state(
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
-def _module_to_dict(module) -> dict:
-    """Serialize a ModuleInfo to dict."""
-    result = {
-        "path": module.path,
-        "language": module.language.value if hasattr(module, 'language') else "python",
-        "docstring": module.docstring,
-        "total_lines": module.total_lines,
-        "imports": module.imports,
-        "external_imports": module.external_imports,
-        "exports": getattr(module, 'exports', []),
-        "classes": [
-            {
-                "name": c.name,
-                "docstring": c.docstring,
-                "bases": c.bases,
-                "anchor": {"file": c.anchor.file, "line": c.anchor.line}
-                if c.anchor
-                else None,
-                "methods": [
-                    {
-                        "name": m.name,
-                        "signature": m.signature,
-                        "docstring": m.docstring,
-                        "anchor": {
-                            "file": m.anchor.file,
-                            "line": m.anchor.line,
-                        }
-                        if m.anchor
-                        else None,
-                    }
-                    for m in c.methods
-                ],
-            }
-            for c in module.classes
-        ],
-        "functions": [
-            {
-                "name": f.name,
-                "signature": f.signature,
-                "docstring": f.docstring,
-                "anchor": {
-                    "file": f.anchor.file,
-                    "line": f.anchor.line,
-                }
-                if f.anchor
-                else None,
-            }
-            for f in module.functions
-        ],
-    }
-
-    # Optional fields (frontend files)
-    if hasattr(module, 'interfaces') and module.interfaces:
-        result["interfaces"] = [
-            {
-                "name": i.name,
-                "members": i.members,
-                "anchor": {"file": i.anchor.file, "line": i.anchor.line}
-                if i.anchor else None,
-            }
-            for i in module.interfaces
-        ]
-    if hasattr(module, 'components') and module.components:
-        result["components"] = [
-            {
-                "name": c.name,
-                "props_type": c.props_type,
-                "hooks": c.hooks,
-                "anchor": {"file": c.anchor.file, "line": c.anchor.line}
-                if c.anchor else None,
-            }
-            for c in module.components
-        ]
-
-    return result

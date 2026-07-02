@@ -10,18 +10,18 @@ Endpoints:
   GET  /api/search/pattern       — semantic code pattern search
 """
 
-import json
 import logging
 import os
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 from fastapi import APIRouter, Query
 
-from config import get_wiki_path, get_config, load_config_from_disk
-from models.entities import SupportedLanguage, SourceAnchor
+from config import get_wiki_path, get_config
+from repositories.analysis_repo import AnalysisRepository
+from models.response_models import (
+    HealthResponse, ImpactResponse, SearchResponse, PatternListResponse,
+    CFGResponse, TaintResponse, CallersResponse,
+)
 
 logger = logging.getLogger("code-wiki.metrics")
 
@@ -29,46 +29,55 @@ router = APIRouter()
 metrics_router = APIRouter()     # /api/metrics/*
 search_router = APIRouter()       # /api/search/*
 
+# ---------------------------------------------------------------------------
+# Repository — lazy singleton
+# ---------------------------------------------------------------------------
+
+_repo: Optional[AnalysisRepository] = None
+
+
+def _get_repo() -> AnalysisRepository:
+    global _repo
+    if _repo is None:
+        _repo = AnalysisRepository(get_wiki_path())
+    return _repo
+
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers (delegating to repository)
 # ---------------------------------------------------------------------------
 
-def _load_analysis() -> dict | None:
-    """Load saved analysis.json from .code-wiki directory (or parent as fallback)."""
-    try:
-        wiki = get_wiki_path()
-        path = wiki / "analysis.json"
-        if not path.exists():
-            # Fallback: check parent directory (legacy analysis.json location)
-            parent_path = wiki.parent / "analysis.json"
-            if parent_path.exists():
-                path = parent_path
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.warning("Failed to load analysis.json: %s", e)
-    return None
+def _load_analysis() -> Optional[dict]:
+    """Load saved analysis.json."""
+    return _get_repo().load_analysis()
 
 
 def _load_json(filename: str) -> Optional[dict]:
-    """Load a JSON file from .code-wiki directory."""
-    try:
-        path = get_wiki_path() / filename
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return None
+    """Load a JSON file from .code-wiki directory via repository."""
+    repo = _get_repo()
+    mapping = {
+        "call_graph.json": repo.load_call_graph,
+        "health_metrics.json": repo.load_health_metrics,
+        "taint_analysis.json": repo.load_taint,
+    }
+    loader = mapping.get(filename)
+    if loader:
+        return loader()
+    return repo._read_json(repo._wiki / filename)
 
 
 def _save_json(filename: str, data: dict):
-    """Save a JSON file to .code-wiki directory."""
-    path = get_wiki_path() / filename
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Save a JSON file to .code-wiki directory via repository."""
+    repo = _get_repo()
+    mapping = {
+        "health_metrics.json": lambda: repo.save_health_metrics(data),
+        "taint_analysis.json": lambda: repo.save_taint(data),
+    }
+    saver = mapping.get(filename)
+    if saver:
+        saver()
+    else:
+        repo._write_json(repo._wiki / filename, data)
 
 
 def _build_call_graph_on_demand() -> dict | None:
@@ -196,7 +205,7 @@ def _build_call_graph_on_demand() -> dict | None:
 # Health Metrics
 # ---------------------------------------------------------------------------
 
-@metrics_router.get("/health")
+@metrics_router.get("/health", response_model=HealthResponse)
 async def get_health_metrics():
     """
     Return project health dashboard metrics.
@@ -389,7 +398,7 @@ async def get_call_graph(
     return cg_data
 
 
-@metrics_router.get("/callers")
+@metrics_router.get("/callers", response_model=CallersResponse)
 async def get_callers(
     entity_id: str = Query(..., description="Entity ID: 'path/to/file.py::func_name'"),
     max_depth: int = Query(3, ge=1, le=10),
@@ -421,7 +430,7 @@ async def get_callers(
 # Taint Analysis
 # ---------------------------------------------------------------------------
 
-@metrics_router.get("/taint")
+@metrics_router.get("/taint", response_model=TaintResponse)
 async def get_taint_analysis():
     """Return taint analysis results (source→sink flows)."""
     taint_data = _load_json("taint_analysis.json")
@@ -434,36 +443,25 @@ async def get_taint_analysis():
 # Impact Analysis
 # ---------------------------------------------------------------------------
 
-@metrics_router.get("/impact")
+@metrics_router.get("/impact", response_model=ImpactResponse)
 async def get_impact_analysis(
     changed_files: Optional[str] = Query(None, description="Comma-separated file paths"),
 ):
     """
     Estimate impact of changes on given files.
-    Uses call graph if available, falls back to dependency graph.
+    Uses call graph if available.
     """
     files = [f.strip() for f in (changed_files or "").split(",") if f.strip()]
     if not files:
         return {
-            "risk_score": 0.0,
-            "changed_functions": [],
-            "affected_production": [],
-            "affected_tests": [],
+            "risk_score": 0.0, "changed_functions": [],
+            "affected_production": [], "affected_tests": [],
             "summary": "请输入要分析的文件路径。",
         }
 
-    # Try call graph first (required for accurate impact analysis)
-    cg_data = _load_json("call_graph.json")
-    if not cg_data:
-        return {
-            "risk_score": 0.0,
-            "changed_functions": [],
-            "affected_production": [],
-            "affected_tests": [],
-            "summary": "需要调用图数据。请先运行完整的代码分析（调用图将在分析时自动构建）。",
-        }
-
-    return _impact_from_call_graph(cg_data, files)
+    from services.impact_service import ImpactService
+    svc = ImpactService(_get_repo())
+    return svc.analyze(files)
 
     try:
         from services.impact_analyzer import ImpactAnalyzer
@@ -543,7 +541,7 @@ async def get_impact_analysis(
 # Semantic Code Search
 # ---------------------------------------------------------------------------
 
-@search_router.get("/pattern")
+@search_router.get("/pattern", response_model=SearchResponse)
 async def search_pattern(
     pattern: str = Query("", description="Pattern name (see list) or custom regex"),
     list_patterns: bool = Query(False, description="List available patterns"),
@@ -592,78 +590,22 @@ async def search_pattern(
 # CFG (Control Flow Graph)
 # ---------------------------------------------------------------------------
 
-@metrics_router.get("/cfg")
+@metrics_router.get("/cfg", response_model=CFGResponse)
 async def get_cfg(
     file: str = Query(..., description="Relative file path, e.g. services/auth.py"),
     function: str = Query(..., description="Function name to generate CFG for"),
 ):
     """
     Return Control Flow Graph for a specific function as JSON + Mermaid.
-
-    Response: {function_name, cyclomatic_complexity, nesting_depth, blocks_count,
-               unreachable_blocks, mermaid}
     """
-    from config import get_config
-    cfg = get_config()
-    repo_path = cfg.get("repo_path", "")
+    from services.cfg_service import CFGService
+    cfg_config = get_config()
+    repo_path = cfg_config.get("repo_path", "")
+    if not repo_path:
+        return {"error": "No repository configured. Please set repo_path in settings."}
 
-    if not repo_path or not os.path.exists(os.path.join(repo_path, file)):
-        return {"error": "File not found", "file": file}
-
-    # Read source
-    full_path = os.path.join(repo_path, file)
-    source = Path(full_path).read_text(encoding="utf-8", errors="replace")
-
-    try:
-        from services.data_flow import CFGBuilder
-        from tree_sitter import Language, Parser
-        from tree_sitter_python import language as python_lang
-
-        lang = Language(python_lang())
-        parser = Parser(lang)
-        tree = parser.parse(source.encode("utf-8"))
-
-        # Find the target function node
-        fn_node = None
-        for child in tree.root_node.children:
-            if child.type == "function_definition":
-                for c in child.children:
-                    if c.type == "identifier":
-                        name = source[c.start_byte:c.end_byte]
-                        if name == function:
-                            fn_node = child
-                            break
-                if fn_node:
-                    break
-            elif child.type == "decorated_definition":
-                for sub in child.children:
-                    if sub.type == "function_definition":
-                        for c in sub.children:
-                            if c.type == "identifier":
-                                if source[c.start_byte:c.end_byte] == function:
-                                    fn_node = sub
-                                    break
-                if fn_node:
-                    break
-
-        if fn_node is None:
-            return {"error": f"Function '{function}' not found in {file}"}
-
-        builder = CFGBuilder()
-        cfg = builder.build(fn_node, source, function)
-
-        return {
-            "function_name": cfg.function_name,
-            "cyclomatic_complexity": cfg.cyclomatic_complexity,
-            "nesting_depth": cfg.max_nesting_depth,
-            "blocks_count": len(cfg.blocks),
-            "unreachable_blocks": cfg.unreachable_blocks,
-            "mermaid": cfg.to_mermaid(f"CFG: {function}"),
-        }
-    except ImportError as e:
-        return {"error": f"CFG module not available: {e}"}
-    except Exception as e:
-        return {"error": str(e)}
+    svc = CFGService()
+    return svc.generate(repo_path, file, function)
 
 
 # ---------------------------------------------------------------------------
