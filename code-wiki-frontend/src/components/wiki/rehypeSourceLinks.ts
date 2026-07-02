@@ -18,8 +18,10 @@ const SRC_MATCH = /^\[@src:(.+):(\d+)\]$/;
 
 export default function rehypeSourceLinks() {
   return function (tree: HastElement | HastText) {
-    visit(tree, "text", (node: unknown, index: unknown, parent: unknown) => {
-      if (!parent || index === undefined) return;
+    visit(tree, "text", (node: unknown, idx: unknown, parent: unknown) => {
+      const index = idx as number | null;
+      const p = parent as HastElement;
+      if (!p || index === null) return;
 
       const textNode = node as HastText;
       const value = textNode.value;
@@ -48,8 +50,7 @@ export default function rehypeSourceLinks() {
       }
 
       // Replace the original text node with the new sequence
-      parent.children.splice(index, 1, ...replacements);
-      // Return the new index to continue after the inserted nodes
+      p.children.splice(index, 1, ...replacements);
       return index + replacements.length;
     });
   };

@@ -61,7 +61,7 @@ export function useSSE() {
     return () => {
       cancelled = true;
       eventSourceRef.current?.close();
-      clearTimeout(retryRef.current);
+      clearTimeout(retryRef.current ?? undefined);
     };
   }, [setAnalysisStatus]);
 }
