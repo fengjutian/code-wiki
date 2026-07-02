@@ -785,23 +785,37 @@ class TreeSitterParser:
         # Function declarations
         func_q = """
         (function_declaration
-          name: (identifier) @name) @def
+          name: (identifier) @name
+          parameters: (formal_parameters) @params
+          return_type: (type_annotation)? @ret
+          body: (statement_block) @body) @def
 
         (variable_declarator
           name: (identifier) @name
-          value: (arrow_function) @arrow) @def
+          value: (arrow_function
+            parameters: (formal_parameters) @params
+            return_type: (type_annotation)? @ret
+            body: (_) @body)) @def
 
         (variable_declarator
           name: (identifier) @name
-          value: (function_expression) @func) @def
+          value: (function_expression
+            parameters: (formal_parameters) @params
+            return_type: (type_annotation)? @ret
+            body: (statement_block) @body)) @def
 
         (method_definition
-          name: (property_identifier) @name) @def
+          name: (property_identifier) @name
+          parameters: (formal_parameters) @params
+          return_type: (type_annotation)? @ret
+          body: (statement_block) @body) @def
         """
         try:
             for _, caps in self._query_matches(lang, func_q, root):
                 name_node = self._first(caps, "name")
                 def_node = self._first(caps, "def")
+                params_node = self._first(caps, "params")
+                ret_node = self._first(caps, "ret")
                 if not name_node:
                     continue
                 name = self._node_text(name_node, source)
@@ -810,8 +824,24 @@ class TreeSitterParser:
                 seen.add(name)
                 start_line = def_node.start_point[0] + 1 if def_node else name_node.start_point[0] + 1
                 end_line = def_node.end_point[0] + 1 if def_node else start_line
+
+                # Extract params from formal_parameters
+                args = self._ts_extract_params(params_node, source) if params_node else []
+                returns_raw = self._node_text(ret_node, source) if ret_node else None
+                returns = returns_raw.lstrip(":").strip() if returns_raw else None
+
+                # Extract decorators by looking at parent for decorated_definition
+                decorators: List[str] = []
+                if def_node and def_node.parent and def_node.parent.type == "decorated_definition":
+                    for child in def_node.parent.children:
+                        if child.type == "decorator":
+                            decorators.append(self._node_text(child, source))
+
                 functions.append(FunctionInfo(
                     name=name,
+                    args=args,
+                    returns=returns,
+                    decorators=decorators,
                     anchor=SourceAnchor(file=rel_path, line=start_line),
                     end_line=end_line,
                 ))
@@ -819,6 +849,29 @@ class TreeSitterParser:
             logger.warning("TS function extraction failed", exc_info=True)
 
         return functions
+
+    @staticmethod
+    def _ts_extract_params(params_node: Optional, source: str) -> List[dict]:
+        """Extract TypeScript function parameters from a formal_parameters node."""
+        if params_node is None:
+            return []
+        args: List[dict] = []
+        for child in params_node.children:
+            if child.type in ("required_parameter", "optional_parameter"):
+                name = type_ann = default = None
+                for c in child.children:
+                    if c.type in ("identifier", "property_identifier"):
+                        name = TreeSitterParser._node_text(c, source)
+                    elif c.type == "type_annotation":
+                        type_ann = TreeSitterParser._node_text(c, source).lstrip(":").strip()
+                    elif c.type in ("string", "number", "true", "false", "null"):
+                        default = TreeSitterParser._node_text(c, source)
+                if name:
+                    args.append({"name": name, "type_annotation": type_ann, "default": default})
+            elif child.type == "rest_pattern":
+                args.append({"name": TreeSitterParser._node_text(child, source),
+                             "type_annotation": "rest", "default": None})
+        return args
 
     def _ts_extract_classes(
         self, root: Node, source: str, rel_path: str, lang: Language

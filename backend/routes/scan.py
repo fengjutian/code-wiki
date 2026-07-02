@@ -238,6 +238,18 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
         )
         dep_graph = DependencyGraph().build(modules)
 
+        # ---- Step 3.1: Add non-code infrastructure files as nodes ----
+        non_code_files = scanner.scan_non_code()
+        if non_code_files:
+            from models.entities import ModuleInfo, SupportedLanguage
+            for nf in non_code_files:
+                if nf not in modules:
+                    modules[nf] = ModuleInfo(
+                        path=nf,
+                        language=SupportedLanguage.INFRA,
+                    )
+            logger.info(f"Added {len(non_code_files)} non-code infrastructure files as graph nodes")
+
         # ---- Step 3.5: Build call graph ----
         call_graph_data = None
         ts_parser = _get_tree_sitter()

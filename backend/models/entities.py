@@ -16,6 +16,7 @@ class SupportedLanguage(str, Enum):
     PYTHON = "python"
     TYPESCRIPT = "typescript"
     JAVASCRIPT = "javascript"
+    INFRA = "infra"
 
     @classmethod
     def from_extension(cls, ext: str) -> Optional["SupportedLanguage"]:

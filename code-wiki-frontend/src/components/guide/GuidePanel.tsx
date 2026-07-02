@@ -1,8 +1,32 @@
 import { useState, useEffect } from "react";
 import {
   BookOpenIcon, LayersIcon, MapPinIcon, StarIcon,
-  FolderTreeIcon, HashIcon, Code2Icon, BoxIcon, ComponentIcon,
+  FolderTreeIcon, HashIcon, FootprintsIcon, ArrowRightIcon,
 } from "lucide-react";
+
+interface TourStep {
+  step: number;
+  depth: number;
+  path: string;
+  layer: string;
+  entity_count: number;
+  classes: number;
+  functions: number;
+  language: string;
+  dependencies: string[];
+  dependents_count: number;
+  description: string;
+}
+
+interface TourData {
+  status: string;
+  message?: string;
+  entry_points?: string[];
+  total_steps?: number;
+  total_entities_covered?: number;
+  max_depth?: number;
+  steps?: TourStep[];
+}
 
 interface GuideData {
   status: string;
@@ -33,19 +57,26 @@ const LAYER_COLORS: Record<string, string> = {
   "配置/入口": "#c62828",
   "前端": "#e91e63",
   "数据库迁移": "#00838f",
+  "测试": "#795548",
+  "基础设施": "#546e7a",
 };
 
 export function GuidePanel() {
   const [data, setData] = useState<GuideData | null>(null);
+  const [tour, setTour] = useState<TourData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/guide");
-        if (!res.ok) throw new Error(`${res.status}`);
-        setData(await res.json());
+        const [guideRes, tourRes] = await Promise.all([
+          fetch("/api/guide"),
+          fetch("/api/tour"),
+        ]);
+        if (!guideRes.ok) throw new Error(`${guideRes.status}`);
+        setData(await guideRes.json());
+        if (tourRes.ok) setTour(await tourRes.json());
       } catch (e) {
         setError(`加载失败: ${e instanceof Error ? e.message : "未知错误"}`);
       } finally {
@@ -88,6 +119,78 @@ export function GuidePanel() {
             </p>
           </div>
         </div>
+
+        {/* Section: Guided Tour — learning path */}
+        {tour && tour.status === "ok" && tour.steps && tour.steps.length > 0 && (
+          <Section icon={<FootprintsIcon size={16} />} title={`学习导览 (${tour.total_steps} 步, 覆盖 ${tour.total_entities_covered} 个实体)`}>
+            <div className="space-y-0 border border-border rounded-xl overflow-hidden">
+              {tour.steps.map((step, i) => (
+                <div
+                  key={step.step}
+                  className={`flex gap-3 p-3 ${i % 2 === 0 ? "bg-card" : "bg-secondary/30"} ${i < tour.steps!.length - 1 ? "border-b border-border" : ""}`}
+                >
+                  {/* Step number + depth indicator */}
+                  <div className="flex flex-col items-center shrink-0 w-10">
+                    <span
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                      style={{
+                        backgroundColor: LAYER_COLORS[step.layer] || "#616161",
+                        color: "#fff",
+                      }}
+                    >
+                      {step.step}
+                    </span>
+                    <span className="text-[9px] text-muted-foreground mt-0.5">
+                      深度 {step.depth}
+                    </span>
+                  </div>
+
+                  {/* Step content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <code className="text-xs font-mono text-primary">{step.path}</code>
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] shrink-0"
+                        style={{
+                          backgroundColor: (LAYER_COLORS[step.layer] || "#616161") + "20",
+                          color: LAYER_COLORS[step.layer] || "#616161",
+                        }}
+                      >
+                        {step.layer}
+                      </span>
+                      {step.dependents_count >= 10 && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-600 shrink-0">
+                          🔥 核心
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {step.description}
+                    </p>
+                    {/* Dependency chain */}
+                    {step.dependencies.length > 0 && (
+                      <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground flex-wrap">
+                        <span>↓</span>
+                        {step.dependencies.slice(0, 4).map((dep) => (
+                          <code key={dep} className="bg-secondary px-1 rounded text-[10px]">{dep}</code>
+                        ))}
+                        {step.dependencies.length > 4 && (
+                          <span>+{step.dependencies.length - 4}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stats */}
+                  <div className="flex flex-col items-end gap-1 shrink-0 text-[10px] text-muted-foreground">
+                    <span>{step.classes > 0 && `${step.classes} 类`}</span>
+                    <span>{step.functions > 0 && `${step.functions} 函数`}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* Section: Overview */}
         <Section icon={<HashIcon size={16} />} title="项目概览">

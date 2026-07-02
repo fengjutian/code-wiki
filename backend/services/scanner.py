@@ -41,6 +41,28 @@ class Scanner:
     # Supported extensions by language
     SUPPORTED_EXTENSIONS = SupportedLanguage.all_extensions()
 
+    # Non-code infrastructure/config files to include as first-class nodes
+    NON_CODE_PATTERNS = [
+        "Dockerfile", "Dockerfile.*",
+        "docker-compose.yml", "docker-compose.yaml",
+        ".dockerignore",
+        "Makefile", "Makefile.*",
+        ".env.example", ".env.template", ".env.sample",
+        "*.sql",
+        "*.graphql", "*.gql",
+        "*.tf", "*.tfvars", ".terraform.lock.hcl",
+        "*.proto",
+        "nginx.conf", "*.nginx.conf",
+        ".gitlab-ci.yml", ".travis.yml", "Jenkinsfile",
+    ]
+    NON_CODE_DIR_PATTERNS = [
+        ".github/workflows/",
+        ".github/actions/",
+        "deploy/", "deployment/", "infra/", "infrastructure/",
+        "k8s/", "kubernetes/", "helm/",
+        "terraform/",
+    ]
+
     def __init__(
         self,
         repo_path: str,
@@ -127,12 +149,43 @@ class Scanner:
                 # Only scan supported extensions
                 ext = os.path.splitext(f)[1].lower()
                 if ext not in self._extensions:
+                    # Check non-code patterns before skipping
+                    if self._match_non_code(rel_path, f):
+                        matched_files.append(rel_path)
                     continue
                 if self.is_excluded(rel_path):
                     continue
                 matched_files.append(rel_path)
 
         return sorted(matched_files)
+
+    def _match_non_code(self, rel_path: str, filename: str) -> bool:
+        """Check if a file matches non-code infrastructure patterns."""
+        # Exact filename match
+        for pattern in self.NON_CODE_PATTERNS:
+            if "/" not in pattern:
+                if fnmatch.fnmatch(filename, pattern):
+                    return True
+            else:
+                if fnmatch.fnmatch(rel_path, pattern):
+                    return True
+
+        # Directory prefix match
+        for dir_pattern in self.NON_CODE_DIR_PATTERNS:
+            norm = rel_path.replace("\\", "/")
+            if norm.startswith(dir_pattern) or ("/" + dir_pattern) in ("/" + norm):
+                return True
+
+        return False
+
+    def scan_non_code(self) -> List[str]:
+        """Return only non-code infrastructure files."""
+        all_files = self.scan_all()
+        code_exts = set(self._extensions)
+        return [
+            f for f in all_files
+            if Path(f).suffix.lower() not in code_exts
+        ]
 
     def scan_partial(self, target_files: List[str]) -> List[str]:
         """

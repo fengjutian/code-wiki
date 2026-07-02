@@ -50,17 +50,23 @@ function transformAnalysis(data: AnalysisData): GraphData {
   const { modules, dependency_graph } = data;
   const modPaths = Object.keys(modules);
   const LAYER_COLORS: Record<string, string> = {
-    routes: "#0288d1", services: "#388e3c", models: "#f57c00",
-    frontend: "#7b1fa2", config: "#c62828", other: "#616161",
+    "接口层": "#0288d1", "服务层": "#388e3c", "数据层": "#f57c00",
+    "工具层": "#7b1fa2", "配置/入口": "#c62828", "前端": "#e91e63",
+    "测试": "#795548", "数据库迁移": "#00838f", "基础设施": "#546e7a",
+    "其他": "#616161",
   };
   function classifyLayer(path: string): string {
-    const norm = path.replace(/\\/g, "/");
-    if (norm.startsWith("routes/")) return "routes";
-    if (norm.startsWith("services/")) return "services";
-    if (norm.startsWith("models/")) return "models";
-    if (norm.startsWith("src/") || norm.includes("frontend")) return "frontend";
-    if (norm.startsWith("config") || norm.startsWith("main")) return "config";
-    return "other";
+    const norm = path.replace(/\\/g, "/").toLowerCase();
+    if (norm.startsWith("routes/") || norm.startsWith("routers/") || norm.startsWith("controllers/") || norm.startsWith("api/") || norm.startsWith("endpoints/")) return "接口层";
+    if (norm.startsWith("services/") || norm.startsWith("service/") || norm.startsWith("core/") || norm.startsWith("domain/")) return "服务层";
+    if (norm.startsWith("models/") || norm.startsWith("model/") || norm.startsWith("entities/") || norm.startsWith("schemas/") || norm.startsWith("dal/") || norm.startsWith("repositories/")) return "数据层";
+    if (norm.startsWith("utils/") || norm.startsWith("util/") || norm.startsWith("helpers/") || norm.startsWith("common/") || norm.startsWith("lib/") || norm.startsWith("shared/")) return "工具层";
+    if (norm.startsWith("config/") || norm.startsWith("settings/") || norm.startsWith("main.") || norm.startsWith("app.") || norm.startsWith("index.") || norm.startsWith("manage.") || norm.startsWith("run.")) return "配置/入口";
+    if (norm.startsWith("src/") || norm.startsWith("components/") || norm.startsWith("pages/") || norm.startsWith("store/") || norm.startsWith("hooks/") || norm.includes("frontend")) return "前端";
+    if (norm.startsWith("tests/") || norm.startsWith("test/") || norm.startsWith("spec/") || norm.startsWith("__tests__/")) return "测试";
+    if (norm.startsWith("migrations/") || norm.startsWith("alembic/") || norm.startsWith("db/")) return "数据库迁移";
+    if (norm.startsWith(".github/") || norm.startsWith("docker") || norm.startsWith("dockerfile") || norm.startsWith("terraform/") || norm.startsWith("k8s/") || norm.includes("infra")) return "基础设施";
+    return "其他";
   }
   const nodes: GraphNode[] = modPaths.map((path) => {
     const mod = modules[path];
@@ -351,7 +357,7 @@ export function KnowledgeGraph() {
         ? {
             concentric: (n: { data: (k: string) => unknown }) => {
               const layer = n.data("layer") as string;
-              const order = ["routes", "services", "models", "frontend", "config", "other"];
+              const order = ["接口层", "服务层", "数据层", "工具层", "配置/入口", "前端", "基础设施", "测试", "数据库迁移", "其他"];
               return order.indexOf(layer);
             },
             minNodeSpacing: 60,
@@ -492,29 +498,15 @@ export function KnowledgeGraph() {
 
         {/* Legend */}
         <div className="ml-auto flex items-center gap-2 text-[10px] text-muted-foreground">
-          {(["routes", "services", "models", "frontend", "other"] as const).map(
+          {(Object.keys(LAYER_COLORS) as string[]).map(
             (layer) => {
-              const colors: Record<string, string> = {
-                routes: "#0288d1",
-                services: "#388e3c",
-                models: "#f57c00",
-                frontend: "#7b1fa2",
-                other: "#616161",
-              };
-              const labels: Record<string, string> = {
-                routes: "路由",
-                services: "服务",
-                models: "模型",
-                frontend: "前端",
-                other: "其他",
-              };
               return (
                 <span key={layer} className="flex items-center gap-1">
                   <span
                     className="inline-block w-2 h-2 rounded-full"
-                    style={{ backgroundColor: colors[layer] }}
+                    style={{ backgroundColor: LAYER_COLORS[layer] }}
                   />
-                  {labels[layer]}
+                  {layer}
                 </span>
               );
             }
