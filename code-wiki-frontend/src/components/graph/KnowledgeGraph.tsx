@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import cytoscape, { type Core } from "cytoscape";
 import { useConfigStore } from "@/store/configStore";
-import { Search, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { Search, ZoomIn, ZoomOut, Maximize, GitBranch, Box } from "lucide-react";
 
 // ---- Module-level cache — survives tab switches without re-fetching ----
 let _cachedGraphData: GraphData | null = null;
@@ -88,12 +88,14 @@ export function KnowledgeGraph() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const repoPath = useConfigStore((s) => s.repoPath);
+  const wikiPath = useConfigStore((s) => s.wikiPath);
   const [layout, setLayout] = useState<LayoutName>("cose");
   const [search, setSearch] = useState("");
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [graphMode, setGraphMode] = useState<"module" | "call">("module");
 
   // ---- Load analysis.json: Tauri local file → HTTP API fallback ----
   useEffect(() => {
@@ -101,7 +103,7 @@ export function KnowledgeGraph() {
     (async () => {
       try {
         // Use cache if fresh
-        if (_cachedGraphData && Date.now() - _cacheTimestamp < CACHE_TTL) {
+        if (_cachedGraphData && Date.now() - _cacheTimestamp < CACHE_TTL && graphMode === "module") {
           setGraphData(_cachedGraphData);
           setLoading(false);
           return;
@@ -109,37 +111,69 @@ export function KnowledgeGraph() {
 
         let data: GraphData | null = null;
 
-        // 1) Desktop mode: read analysis.json directly from local filesystem via Tauri
-        if (repoPath && "__TAURI__" in window) {
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const raw = await invoke<string>("read_file_content", {
-              repoPath,
-              filePath: ".code-wiki/analysis.json",
-            });
-            const parsed = JSON.parse(raw) as AnalysisData;
-            if (parsed.modules && Object.keys(parsed.modules).length > 0) {
-              data = transformAnalysis(parsed);
-            }
-          } catch { /* fall through to HTTP */ }
-        }
-
-        // 2) Browser dev mode: fetch from backend API
-        if (!data) {
-          const res = await fetch("/api/graph/data");
+        if (graphMode === "call") {
+          // Fetch call-graph data from backend API
+          const res = await fetch("/api/metrics/call-graph");
           if (!res.ok) throw new Error(`${res.status}`);
-          data = await res.json();
+          const cg = await res.json();
+          if (!cg.callables || Object.keys(cg.callables).length === 0) {
+            setError("暂无函数调用图数据，请先运行分析");
+            setLoading(false);
+            return;
+          }
+          // Transform call-graph to graph data format
+          const callGraphNodes: GraphNode[] = Object.entries(cg.callables as Record<string, {name: string; module: string; parent_class?: string; kind: string}>).map(([id, info]) => ({
+            id,
+            label: info.parent_class ? `${info.parent_class}.${info.name}` : info.name,
+            layer: info.kind === "function" ? "services" : info.kind === "method" ? "services" : "other",
+            color: info.kind === "function" ? "#7c4dff" : info.kind === "method" ? "#448aff" : "#616161",
+            entityCount: 1,
+            language: "python",
+          }));
+          const callGraphEdges: GraphEdge[] = [];
+          for (const [src, targets] of Object.entries((cg.forward || {}) as Record<string, string[]>)) {
+            for (const tgt of targets) {
+              callGraphEdges.push({ source: src, target: tgt, type: "calls" });
+            }
+          }
+          data = { nodes: callGraphNodes, edges: callGraphEdges };
+        } else {
+          // Module-level graph
+          // 1) Desktop mode: read analysis.json directly from local filesystem via Tauri
+          if (repoPath && "__TAURI__" in window) {
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              const raw = await invoke<string>("read_file_content", {
+                repoPath,
+                filePath: ".code-wiki/analysis.json",
+              });
+              const parsed = JSON.parse(raw) as AnalysisData;
+              if (parsed.modules && Object.keys(parsed.modules).length > 0) {
+                data = transformAnalysis(parsed);
+              }
+            } catch { /* fall through to HTTP */ }
+          }
+
+          // 2) Browser dev mode: fetch from backend API
+          if (!data) {
+            const res = await fetch("/api/graph/data");
+            if (!res.ok) throw new Error(`${res.status}`);
+            data = await res.json();
+          }
         }
 
         if (cancelled) return;
         if (!data || data.nodes.length === 0) {
-          setError("暂无分析数据，请先扫描代码仓库");
+          setError(graphMode === "call" ? "暂无函数调用关系" : "暂无分析数据，请先扫描代码仓库");
           setLoading(false);
           return;
         }
-        _cachedGraphData = data;
-        _cacheTimestamp = Date.now();
+        if (graphMode === "module") {
+          _cachedGraphData = data;
+          _cacheTimestamp = Date.now();
+        }
         setGraphData(data);
+        setError(null);
         setLoading(false);
       } catch (e: unknown) {
         if (!cancelled) {
@@ -153,7 +187,7 @@ export function KnowledgeGraph() {
       cyRef.current?.destroy();
       cyRef.current = null;
     };
-  }, [repoPath]);
+  }, [repoPath, graphMode]);
 
   // ---- Initialize cytoscape when data is loaded AND container is mounted ----
   useEffect(() => {
@@ -377,6 +411,18 @@ export function KnowledgeGraph() {
   const zoomOut = () => cyRef.current?.zoom(cyRef.current.zoom() * 0.7);
   const fit = () => cyRef.current?.fit(undefined, 30);
 
+  // ---- No config: don't render — user must configure repo path first ----
+  if (!repoPath) {
+    return (
+      <div className="h-full flex items-center justify-center text-muted-foreground">
+        <div className="text-center">
+          <p className="text-2xl mb-2">🗺️</p>
+          <p className="text-sm">请先在分析模块配置仓库路径</p>
+        </div>
+      </div>
+    );
+  }
+
   // ---- Loading / empty / error states ----
   if (loading) {
     return (
@@ -408,6 +454,20 @@ export function KnowledgeGraph() {
             {l.label}
           </button>
         ))}
+
+        <div className="w-px h-5 bg-border mx-1" />
+
+        {/* Graph mode: module / call */}
+        <button
+          onClick={() => setGraphMode(graphMode === "module" ? "call" : "module")}
+          className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded transition-colors ${
+            graphMode === "call" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+          }`}
+          title={graphMode === "module" ? "切换到函数调用图" : "切换到模块依赖图"}
+        >
+          {graphMode === "module" ? <Box size={12} /> : <GitBranch size={12} />}
+          {graphMode === "module" ? "模块" : "调用"}
+        </button>
 
         <div className="w-px h-5 bg-border mx-1" />
 

@@ -106,6 +106,7 @@ def create_app() -> FastAPI:
     from routes.health import router as health_router
     from routes.llm_test import router as llm_test_router
     from routes.graph import router as graph_router
+    from routes.metrics import metrics_router, search_router
 
     app.include_router(scan_router, prefix="/api")
     app.include_router(wiki_router, prefix="/api")
@@ -119,6 +120,8 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(llm_test_router, prefix="/api")
     app.include_router(graph_router, prefix="/api")
+    app.include_router(metrics_router, prefix="/api/metrics")
+    app.include_router(search_router, prefix="/api/search")
 
     logger.info("All routes registered")
     return app
