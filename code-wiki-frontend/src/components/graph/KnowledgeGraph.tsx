@@ -38,6 +38,14 @@ interface GraphData {
   edges: GraphEdge[];
 }
 
+// ---- Module-level layer colors (used by both transformAnalysis and KnowledgeGraph) ----
+const LAYER_COLORS: Record<string, string> = {
+  "接口层": "#0288d1", "服务层": "#388e3c", "数据层": "#f57c00",
+  "工具层": "#7b1fa2", "配置/入口": "#c62828", "前端": "#e91e63",
+  "测试": "#795548", "数据库迁移": "#00838f", "基础设施": "#546e7a",
+  "其他": "#616161",
+};
+
 // ---- Transform raw analysis.json → GraphData (for Tauri local file path) ----
 interface RawModule {
   classes?: unknown[]; functions?: unknown[]; interfaces?: unknown[]; components?: unknown[];
@@ -49,12 +57,6 @@ interface AnalysisData { modules: Record<string, RawModule>; dependency_graph?: 
 function transformAnalysis(data: AnalysisData): GraphData {
   const { modules, dependency_graph } = data;
   const modPaths = Object.keys(modules);
-  const LAYER_COLORS: Record<string, string> = {
-    "接口层": "#0288d1", "服务层": "#388e3c", "数据层": "#f57c00",
-    "工具层": "#7b1fa2", "配置/入口": "#c62828", "前端": "#e91e63",
-    "测试": "#795548", "数据库迁移": "#00838f", "基础设施": "#546e7a",
-    "其他": "#616161",
-  };
   function classifyLayer(path: string): string {
     const norm = path.replace(/\\/g, "/").toLowerCase();
     if (norm.startsWith("routes/") || norm.startsWith("routers/") || norm.startsWith("controllers/") || norm.startsWith("api/") || norm.startsWith("endpoints/")) return "接口层";

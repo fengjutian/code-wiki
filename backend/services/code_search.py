@@ -157,6 +157,69 @@ class CodePatternSearch:
 
         return results
 
+    def search_by_paths(
+        self,
+        repo_path: str,
+        file_paths: List[str],
+        pattern_name: str,
+    ) -> List[dict]:
+        """Search using file paths (lightweight, no ModuleInfo needed)."""
+        pattern_def = self.patterns.get(pattern_name)
+        if not pattern_def:
+            return []
+
+        repo = Path(repo_path)
+        results: List[dict] = []
+        regex = re.compile(pattern_def["pattern"], re.MULTILINE)
+
+        for rel_path in file_paths:
+            full_path = repo / rel_path
+            try:
+                source = full_path.read_text(encoding="utf-8", errors="replace")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            for match in regex.finditer(source):
+                line_num = source[: match.start()].count("\n") + 1
+                results.append({
+                    "file": rel_path,
+                    "line": line_num,
+                    "match": match.group(0)[:100],
+                })
+
+        return results
+
+    def search_custom_by_paths(
+        self,
+        repo_path: str,
+        file_paths: List[str],
+        query: str,
+    ) -> List[dict]:
+        """Custom regex search using file paths."""
+        repo = Path(repo_path)
+        results: List[dict] = []
+        try:
+            regex = re.compile(query, re.MULTILINE | re.IGNORECASE)
+        except re.error:
+            return [{"error": f"Invalid regex: {query}"}]
+
+        for rel_path in file_paths:
+            full_path = repo / rel_path
+            try:
+                source = full_path.read_text(encoding="utf-8", errors="replace")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            for match in regex.finditer(source):
+                line_num = source[: match.start()].count("\n") + 1
+                results.append({
+                    "file": rel_path,
+                    "line": line_num,
+                    "match": match.group(0)[:100],
+                })
+
+        return results
+
     def list_patterns(self) -> List[dict]:
         """List all available search patterns."""
         return [

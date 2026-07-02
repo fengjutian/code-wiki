@@ -569,16 +569,20 @@ async def search_pattern(
 
     try:
         from services.code_search import CodePatternSearch
+        from config import get_config
+        
         cs = CodePatternSearch()
-
+        repo_path = get_config().get("repo_path", "")
+        
         if query:
-            results = cs.search_custom(
-                modules={},  # ModuleInfo not available from JSON
-                query=query,
-            )
+            # Custom regex search — use file paths from analysis.json
+            file_paths = list(analysis.get("modules", {}).keys())
+            results = cs.search_custom_by_paths(repo_path, file_paths, query)
             return {"results": results, "query": query, "count": len(results)}
 
-        results = cs.search(modules={}, pattern_name=pattern)
+        # Named pattern search — use file paths from analysis.json
+        file_paths = list(analysis.get("modules", {}).keys())
+        results = cs.search_by_paths(repo_path, file_paths, pattern)
         return {"results": results, "pattern": pattern, "count": len(results)}
     except ImportError:
         return {"results": [], "error": "code_search module not available"}

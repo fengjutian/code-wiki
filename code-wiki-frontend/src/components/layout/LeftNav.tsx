@@ -1,4 +1,4 @@
-import { CodeIcon, BookOpenIcon, SettingsIcon, BarChart3Icon, GitGraphIcon, ActivityIcon, GaugeIcon, GitBranchIcon, SearchIcon, AlertTriangleIcon, LightbulbIcon } from "lucide-react";
+import { CodeIcon, BookOpenIcon, SettingsIcon, BarChart3Icon, GitGraphIcon, ActivityIcon, GaugeIcon, GitBranchIcon, SearchIcon, AlertTriangleIcon, LightbulbIcon, DatabaseIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfigStore } from "@/store/configStore";
 
@@ -14,6 +14,7 @@ const tabs = [
   { id: "settings" as const, label: "设置", icon: SettingsIcon },
   { id: "test" as const, label: "检测", icon: ActivityIcon },
   { id: "guide" as const, label: "指南", icon: LightbulbIcon },
+  { id: "schema" as const, label: "数据", icon: DatabaseIcon },
 ];
 
 export function LeftNav() {
