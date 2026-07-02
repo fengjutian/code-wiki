@@ -159,15 +159,6 @@ export function MetricsPanel() {
 
       {/* Taint Analysis */}
       <TaintSection />
-
-      {/* CFG Viewer */}
-      <CFGSection />
-
-      {/* Semantic Search */}
-      <SearchSection />
-
-      {/* Impact Analysis */}
-      <ImpactSection />
     </div>
   );
 }
@@ -194,46 +185,6 @@ function Row({ label, value }: { label: string; value: string | number }) {
 // ---------------------------------------------------------------------------
 // Sub-panels
 // ---------------------------------------------------------------------------
-
-function CFGSection() {
-  const [file, setFile] = useState("");
-  const [func, setFunc] = useState("");
-  const [cfg, setCfg] = useState<{function_name: string; cyclomatic_complexity: number; blocks_count: number; mermaid: string} | null>(null);
-  const [error, setError] = useState("");
-
-  const load = async () => {
-    if (!file.trim() || !func.trim()) return;
-    setError("");
-    try {
-      const res = await fetch(`/api/metrics/cfg?file=${encodeURIComponent(file)}&function=${encodeURIComponent(func)}`);
-      const data = await res.json();
-      if (data.error) { setError(data.error); setCfg(null); }
-      else setCfg(data);
-    } catch { setError("请求失败"); }
-  };
-
-  return (
-    <Section title="控制流图 CFG" content={
-      <div>
-        <div className="flex gap-2 mb-2">
-          <input value={file} onChange={e => setFile(e.target.value)} placeholder="文件，如 svc/user.py"
-            className="flex-1 px-2 py-1 text-[11px] rounded border border-input bg-background" />
-          <input value={func} onChange={e => setFunc(e.target.value)} placeholder="函数名"
-            onKeyDown={e => e.key === "Enter" && load()}
-            className="w-32 px-2 py-1 text-[11px] rounded border border-input bg-background" />
-          <button onClick={load} className="px-3 py-1 text-[11px] rounded bg-primary text-primary-foreground">查看</button>
-        </div>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        {cfg && (
-          <div className="text-xs">
-            <p><strong>{cfg.function_name}</strong> — 圈复杂度: {cfg.cyclomatic_complexity} | 基本块: {cfg.blocks_count}</p>
-            <pre className="mt-1 p-2 rounded bg-secondary text-[10px] overflow-x-auto max-h-64">{cfg.mermaid}</pre>
-          </div>
-        )}
-      </div>
-    } />
-  );
-}
 
 function TaintSection() {
   const [flows, setFlows] = useState<Array<{source: string; sink: string; risk_level: string}>>([]);
@@ -271,95 +222,6 @@ function TaintSection() {
             <code className="font-mono truncate">{f.sink}</code>
           </div>
         ))}
-      </div>
-    } />
-  );
-}
-
-function SearchSection() {
-  const [patterns, setPatterns] = useState<Array<{name: string; label: string; description: string; languages: string[]}>>([]);
-  const [results, setResults] = useState<Array<{file: string; line: number; match: string}>>([]);
-  const [selected, setSelected] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/search/pattern?list_patterns=true");
-        if (res.ok) setPatterns((await res.json()).patterns || []);
-      } catch { /* */ }
-    })();
-  }, []);
-
-  const search = async (pattern: string) => {
-    setSelected(pattern);
-    try {
-      const res = await fetch(`/api/search/pattern?pattern=${pattern}`);
-      if (res.ok) setResults((await res.json()).results || []);
-    } catch { /* */ }
-  };
-
-  return (
-    <Section title="语义代码搜索" content={
-      <div>
-        <div className="flex flex-wrap gap-1 mb-2">
-          {patterns.map(p => (
-            <button key={p.name} onClick={() => search(p.name)}
-              className={`px-2 py-0.5 text-[10px] rounded ${selected === p.name ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-accent"}`}
-              title={p.description}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-        {results.length > 0 && (
-          <div className="space-y-0.5 max-h-48 overflow-y-auto">
-            {results.slice(0, 30).map((r, i) => (
-              <div key={i} className="flex gap-2 text-[10px] p-1 rounded hover:bg-accent">
-                <code className="font-mono shrink-0 text-muted-foreground">{r.file}:{r.line}</code>
-                <code className="truncate">{r.match}</code>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    } />
-  );
-}
-
-function ImpactSection() {
-  const [file, setFile] = useState("");
-  const [report, setReport] = useState<{risk_score: number; summary: string; affected_production: Array<{name: string; module: string}>} | null>(null);
-
-  const analyze = async () => {
-    if (!file.trim()) return;
-    try {
-      const res = await fetch(`/api/metrics/impact?changed_files=${encodeURIComponent(file)}`);
-      if (res.ok) setReport(await res.json());
-    } catch { /* */ }
-  };
-
-  return (
-    <Section title="变更影响分析" content={
-      <div>
-        <div className="flex gap-2 mb-2">
-          <input value={file} onChange={e => setFile(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && analyze()}
-            placeholder="文件路径，如 services/auth.py"
-            className="flex-1 px-2 py-1 text-[11px] rounded border border-input bg-background" />
-          <button onClick={analyze} className="px-3 py-1 text-[11px] rounded bg-primary text-primary-foreground">分析</button>
-        </div>
-        {report && (
-          <div className="text-xs space-y-1">
-            <p className="font-medium">风险: {Math.round(report.risk_score * 100)}% — {report.summary}</p>
-            {report.affected_production.length > 0 && (
-              <div>
-                <p className="text-muted-foreground">受影响:</p>
-                {report.affected_production.map((a, i) => (
-                  <code key={i} className="block text-[10px] ml-2">{a.module} → {a.name}</code>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     } />
   );
