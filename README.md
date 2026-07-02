@@ -98,6 +98,75 @@ cd code-wiki-frontend && pnpm dev
 | 向量检索 | FAISS (HNSW) + BM25 混合检索 + RRF 融合 |
 | 重排序 | Cross-Encoder (FlagEmbedding) |
 
+## 原理
+
+### 1. 静态代码分析
+
+```
+源码文件 → AST 解析 → ModuleInfo (结构化数据)
+              │
+              ├─ Python: ast 模块解析 .py
+              ├─ TypeScript/JS: regex + tree-sitter 解析 .ts/.tsx/.js/.jsx
+              └─ 统一输出: ClassInfo / FunctionInfo / InterfaceInfo / SourceAnchor
+```
+
+- 提取：模块 docstring、类（方法签名/装饰器/继承）、函数（参数/返回值）、导入关系
+- 依赖图：从 import 语句构建有向图，用于增量更新和影响分析
+- Tree-sitter：提供比 regex 更精确的 TS/JS AST 解析，支持调用链/数据流分析
+
+### 2. LLM Wiki 生成
+
+```
+ModuleInfo → PromptBuilder (模块摘要 + 依赖上下文) → LLM API → Markdown → WikiPage
+                                                       ↓ (失败时)
+                                              MarkdownBuilder (模板降级)
+```
+
+- **PromptBuilder**：根据模块/类/函数类型选择角色感知模板，注入跨模块依赖上下文
+- **LLMService**：封装 API 调用，支持重试（指数退避）、速率限制、流式/非流式
+- **降级策略**：LLM 不可用时由 MarkdownBuilder 生成纯结构化 Markdown
+- **源码锚点**：每个实体标注 `[@src:path:line]`，前端可点击跳转到编辑器
+
+### 3. 混合检索 RAG
+
+```
+用户提问 → Embedding + BM25 关键词 → Top-K 候选
+             ↓
+        RRF 融合排序 (Reciprocal Rank Fusion)
+             ↓
+        Cross-Encoder 重排序 → Top-5 片段
+             ↓
+        Prompt 组装 → LLM 流式生成 (SSE)
+```
+
+- **AST 分块**：按函数/类/方法粒度切分，保留类型签名、源码锚点
+- **BM25 关键词**：CJK 感知的 bigram 分词器，对类名/函数名专有名词匹配效果更好
+- **FAISS (HNSW)**：百万级向量亚毫秒检索，索引持久化到磁盘
+- **RRF 融合**：`score = 1/(60+rank_bm25) + 1/(60+rank_dense)`
+
+### 4. 增量更新
+
+```
+文件变更 → Watcher 检测 → 依赖图反向追踪 → 受影响模块集合
+                ↓
+        重新分析 → 局部覆盖 .md + 增量更新 FAISS
+```
+
+- 文件监听由 Tauri (Rust notify crate) 负责
+- 依赖图反向遍历找出所有 import 了变更模块的文件
+- WikiState 维护模块 hash，跳过未变更模块
+
+### 5. 知识图谱
+
+```
+analysis.json → 节点 (模块) + 边 (依赖) → Cytoscape.js 渲染
+                   │
+                   ├─ 5 种布局: 力导向/层级/同心圆/环形/网格
+                   ├─ 节点着色: routes=蓝 services=绿 models=橙 frontend=紫
+                   ├─ 搜索过滤 + 缩放/平移
+                   └─ Tauri 本地读文件 (零网络请求)
+```
+
 ## API
 
 | 方法 | 端点 | 说明 |
