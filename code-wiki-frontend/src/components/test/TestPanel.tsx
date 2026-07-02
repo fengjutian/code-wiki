@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ActivityIcon, CheckCircleIcon, XCircleIcon, RefreshCwIcon } from "lucide-react";
+import { CheckCircleIcon, XCircleIcon, RefreshCwIcon } from "lucide-react";
 
 interface HealthResponse {
   status: string;

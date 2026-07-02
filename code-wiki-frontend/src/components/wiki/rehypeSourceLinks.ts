@@ -8,24 +8,27 @@
  * This plugin works around that limitation at the hast tree level.
  */
 import { visit } from "unist-util-visit";
-import type { Nodes, Text } from "hast";
+
+// Inline hast types (avoid dependency on @types/hast)
+interface HastText { type: "text"; value: string; }
+interface HastElement { type: "element"; tagName: string; properties: Record<string, unknown>; children: (HastText | HastElement)[]; }
 
 const SRC_PATTERN = /(\[@src:[^\]]+\])/g;
 const SRC_MATCH = /^\[@src:(.+):(\d+)\]$/;
 
 export default function rehypeSourceLinks() {
-  return function (tree: Nodes) {
-    visit(tree, "text", (node, index, parent) => {
+  return function (tree: HastElement | HastText) {
+    visit(tree, "text", (node: unknown, index: unknown, parent: unknown) => {
       if (!parent || index === undefined) return;
 
-      const textNode = node as Text;
+      const textNode = node as HastText;
       const value = textNode.value;
 
       // Quick check before doing the split
       if (!value.includes("[@src:")) return;
 
       const parts = value.split(SRC_PATTERN);
-      const replacements: (Text | import("hast").Element)[] = [];
+      const replacements: (HastText | HastElement)[] = [];
 
       for (const part of parts) {
         const match = part.match(SRC_MATCH);

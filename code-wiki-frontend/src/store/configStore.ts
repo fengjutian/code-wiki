@@ -3,7 +3,6 @@ import type {
   FileTreeNode,
   WikiTreeNode,
   AnalysisStatus,
-  ChatMessage,
   LLMConfig,
   AppConfig,
 } from "@/lib/types";
@@ -279,6 +278,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         finishedAt: null,
         totalModules: 0,
         processedModules: 0,
+        totalWiki: 0,
+        processedWiki: 0,
       },
     });
     try {
@@ -304,6 +305,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
           finishedAt: null,
           totalModules: 0,
           processedModules: 0,
+          totalWiki: 0,
+          processedWiki: 0,
           errorMessage: String(e),
         },
       });

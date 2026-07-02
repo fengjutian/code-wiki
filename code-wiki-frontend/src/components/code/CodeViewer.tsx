@@ -131,7 +131,7 @@ export function CodeViewer() {
         <div className="flex-1 overflow-y-auto p-6">
           <article className="prose dark:prose-invert max-w-none text-sm">
             <Suspense fallback={<div className="animate-pulse h-4 bg-muted rounded" />}>
-            <MarkdownHooks components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{codeContent || ""}</MarkdownHooks>
+            <MarkdownHooks components={renderer as any} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks] as any} remarkPlugins={[remarkGfm]}>{codeContent || ""}</MarkdownHooks>
           </Suspense>
           </article>
         </div>

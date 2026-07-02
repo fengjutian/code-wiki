@@ -87,7 +87,7 @@ export function WikiPanel() {
     () => (
       <article className="prose dark:prose-invert max-w-none text-sm">
         <Suspense fallback={<div className="animate-pulse h-4 bg-muted rounded" />}>
-          <MarkdownHooks components={renderer} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks]} remarkPlugins={[remarkGfm]}>{wikiContent}</MarkdownHooks>
+          <MarkdownHooks components={renderer as any} rehypePlugins={[rehypePrettyCodePlugin, rehypeSourceLinks] as any} remarkPlugins={[remarkGfm]}>{wikiContent}</MarkdownHooks>
         </Suspense>
       </article>
     ),

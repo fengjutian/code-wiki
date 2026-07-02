@@ -31,6 +31,8 @@ export function StatusBar() {
     generating: "📝 正在生成 Wiki...",
     done: "✅ Wiki 已是最新",
     error: `❌ 分析失败: ${analysisStatus.errorMessage || "未知错误"}`,
+    cancelling: "⏸ 正在取消...",
+    cancelled: "⏹ 已取消",
   }[analysisStatus.status];
 
   const timeText = analysisStatus.finishedAt

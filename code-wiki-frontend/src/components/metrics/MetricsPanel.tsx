@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { RefreshCw, AlertTriangle, CheckCircle, Code2, GitBranch, Shield } from "lucide-react";
+import { RefreshCw, AlertTriangle, Code2, GitBranch, Shield } from "lucide-react";
 
 interface HealthData {
   total_modules?: number;

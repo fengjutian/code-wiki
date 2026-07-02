@@ -34,7 +34,7 @@ export interface FileTreeNode {
   name: string;
   path: string;
   type: "file" | "directory";
-  status: "pending" | "analyzed" | "error";
+  status: "pending" | "analyzing" | "analyzed" | "error";
   excluded: boolean;
   children?: FileTreeNode[];
 }

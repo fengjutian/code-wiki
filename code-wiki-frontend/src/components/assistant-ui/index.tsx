@@ -158,7 +158,7 @@ const StyledMarkdownText: TextMessagePartComponent = ({ text }) => {
     <Suspense fallback={<div className="animate-pulse h-3 bg-muted rounded" />}>
       <MarkdownHooks
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypePrettyCodePlugin]}
+        rehypePlugins={[rehypePrettyCodePlugin] as any}
         className="prose prose-sm dark:prose-invert max-w-none"
       >
         {text}

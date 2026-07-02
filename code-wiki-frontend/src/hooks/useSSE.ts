@@ -14,7 +14,7 @@ function snakeToCamel(raw: Record<string, unknown>): Partial<AnalysisStatus> {
 export function useSSE() {
   const setAnalysisStatus = useConfigStore((s) => s.setAnalysisStatus);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const retryRef = useRef<ReturnType<typeof setTimeout>>();
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let retries = 0;
