@@ -175,6 +175,7 @@ class CallableEntity:
     module: str                # relative file path
     parent_class: Optional[str] = None  # class name for methods
     anchor: Optional[SourceAnchor] = None
+    end_line: int = 0          # end line of the definition
     kind: str = "function"     # "function" | "method" | "constructor"
 
 
