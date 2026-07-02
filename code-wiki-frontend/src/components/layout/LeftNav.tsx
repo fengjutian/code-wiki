@@ -13,6 +13,7 @@ const tabs = [
   { id: "metrics" as const, label: "指标", icon: GaugeIcon },
   { id: "settings" as const, label: "设置", icon: SettingsIcon },
   { id: "test" as const, label: "检测", icon: ActivityIcon },
+  { id: "guide" as const, label: "指南", icon: LightbulbIcon },
 ];
 
 export function LeftNav() {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MermaidRenderer } from "@/components/shared/MermaidRenderer";
 
 export function CFGPanel() {
   const [file, setFile] = useState("");
@@ -43,8 +44,8 @@ export function CFGPanel() {
             <Card label="嵌套深度" value={cfg.nesting_depth} />
           </div>
           <div className="p-4 rounded-lg bg-card border border-border">
-            <h3 className="text-sm font-medium mb-2">Mermaid 图</h3>
-            <pre className="text-[11px] bg-secondary rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">{cfg.mermaid}</pre>
+            <h3 className="text-sm font-medium mb-2">控制流图</h3>
+            <MermaidRenderer chart={cfg.mermaid} className="max-h-96" />
           </div>
         </div>
       )}
