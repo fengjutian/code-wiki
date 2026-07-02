@@ -161,3 +161,44 @@ class AnalysisState:
     total_modules: int = 0
     processed_modules: int = 0
     error_message: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Call Graph entities
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CallableEntity:
+    """A callable node in the call graph: function or method."""
+    id: str                    # unique ID: "file_path::ClassName.method_name" or "file_path::func_name"
+    name: str                  # simple name, e.g. "get_user"
+    module: str                # relative file path
+    parent_class: Optional[str] = None  # class name for methods
+    anchor: Optional[SourceAnchor] = None
+    kind: str = "function"     # "function" | "method" | "constructor"
+
+
+@dataclass
+class CallEdge:
+    """A directed call edge: caller → callee."""
+    caller_id: str
+    callee_id: str
+    call_site: Optional[SourceAnchor] = None  # where the call happens
+    resolved: bool = True     # True if callee was resolved to a known entity
+
+
+@dataclass
+class CallGraphData:
+    """The complete call graph for a repository."""
+    callables: Dict[str, CallableEntity]   # entity_id → entity
+    forward: Dict[str, List[str]]           # caller_id → [callee_ids]
+    reverse: Dict[str, List[str]]           # callee_id → [caller_ids]
+    unresolved_calls: List[CallEdge]        # call edges not resolved to known entities
+
+    @property
+    def total_edges(self) -> int:
+        return sum(len(v) for v in self.forward.values())
+
+    @property
+    def total_callables(self) -> int:
+        return len(self.callables)

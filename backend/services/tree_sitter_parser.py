@@ -18,7 +18,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from tree_sitter import Language, Parser, Query, Node, Tree
+from tree_sitter import Language, Parser, Query, Node, Tree, QueryCursor
 
 from models.entities import (
     ModuleInfo,
@@ -276,11 +276,10 @@ class TreeSitterParser:
             (string) @module.doc)) @module.doc_stmt
         """
         try:
-            q = Query(lang, query_src)
-            for _, capture_map in q.matches(root):
-                node = capture_map.get("module.doc")
+            for _, caps in self._query_matches(lang, query_src, root):
+                node = caps.get("module.doc")
                 if node:
-                    return self._node_text(node, source).strip("'\"")
+                    return self._node_text(node[0], source).strip("'\"")
         except Exception:
             pass
         return None
@@ -290,30 +289,36 @@ class TreeSitterParser:
     ) -> Tuple[List[FunctionInfo], List[FunctionInfo], List[ClassInfo]]:
         """Extract top-level functions and classes."""
         functions: List[FunctionInfo] = []
-        class_functions: List[FunctionInfo] = []   # methods
+        class_functions: List[FunctionInfo] = []
         classes: List[ClassInfo] = []
         seen_func_names: set[str] = set()
+        seen_func_positions: set[tuple] = set()    # dedup: (name, start_line)
+        seen_class_positions: set[tuple] = set()   # dedup: (name, start_line)
 
         # ---- Classes first ----
         try:
-            class_q = Query(lang, self._PY_CLASS_Q)
-            for _, caps in class_q.matches(root):
-                class_node = caps.get("class.def")
-                name_node = caps.get("class.name")
-                body_node = caps.get("class.body")
-                bases_node = caps.get("class.bases")
-                deco_node = caps.get("class.deco")
+            for _, caps in self._query_matches(lang, self._PY_CLASS_Q, root):
+                class_node = self._first(caps, "class.def")
+                name_node = self._first(caps, "class.name")
+                body_node = self._first(caps, "class.body")
+                bases_node = self._first(caps, "class.bases")
+                deco_nodes = caps.get("class.deco", [])
 
                 if not (class_node and name_node):
                     continue
 
                 class_name = self._node_text(name_node, source)
                 bases = self._py_extract_bases(bases_node, source)
-                decorators = self._py_extract_decorators(deco_node, source)
+                decorators = [self._node_text(d, source) for d in deco_nodes]
                 start_line = name_node.start_point[0] + 1
                 end_line = class_node.end_point[0] + 1
 
-                # Extract methods from class body
+                # Deduplicate: decorated_definition also exposes inner class_definition
+                pos_key = (class_name, start_line)
+                if pos_key in seen_class_positions:
+                    continue
+                seen_class_positions.add(pos_key)
+
                 methods: List[FunctionInfo] = []
                 if body_node:
                     methods = self._py_extract_methods(body_node, source, rel_path, lang)
@@ -336,13 +341,12 @@ class TreeSitterParser:
 
         # ---- Functions ----
         try:
-            func_q = Query(lang, self._PY_FUNC_Q)
-            for _, caps in func_q.matches(root):
-                func_node = caps.get("func.def")
-                name_node = caps.get("func.name")
-                params_node = caps.get("func.params")
-                ret_node = caps.get("func.ret")
-                deco_node = caps.get("func.deco")
+            for _, caps in self._query_matches(lang, self._PY_FUNC_Q, root):
+                func_node = self._first(caps, "func.def")
+                name_node = self._first(caps, "func.name")
+                params_node = self._first(caps, "func.params")
+                ret_node = self._first(caps, "func.ret")
+                deco_nodes = caps.get("func.deco", [])
 
                 if not (func_node and name_node):
                     continue
@@ -354,9 +358,15 @@ class TreeSitterParser:
 
                 args = self._py_extract_params(params_node, source)
                 returns = self._node_text(ret_node, source) if ret_node else None
-                decorators = self._py_extract_decorators(deco_node, source)
+                decorators = [self._node_text(d, source) for d in deco_nodes]
                 start_line = name_node.start_point[0] + 1
                 end_line = func_node.end_point[0] + 1
+
+                # Deduplicate: decorated functions also expose inner function_definition
+                pos_key = (func_name, start_line)
+                if pos_key in seen_func_positions:
+                    continue
+                seen_func_positions.add(pos_key)
 
                 fn = FunctionInfo(
                     name=func_name,
@@ -395,13 +405,12 @@ class TreeSitterParser:
         ) @method.def
         """
         try:
-            q = Query(lang, method_q)
-            for _, caps in q.matches(body_node):
-                m_node = caps.get("method.def")
-                name_node = caps.get("method.name")
-                params_node = caps.get("method.params")
-                ret_node = caps.get("method.ret")
-                deco_node = caps.get("method.deco")
+            for _, caps in self._query_matches(lang, method_q, body_node):
+                m_node = self._first(caps, "method.def")
+                name_node = self._first(caps, "method.name")
+                params_node = self._first(caps, "method.params")
+                ret_node = self._first(caps, "method.ret")
+                deco_nodes = caps.get("method.deco", [])
 
                 if not (m_node and name_node):
                     continue
@@ -409,7 +418,7 @@ class TreeSitterParser:
                 m_name = self._node_text(name_node, source)
                 args = self._py_extract_params(params_node, source)
                 returns = self._node_text(ret_node, source) if ret_node else None
-                decorators = self._py_extract_decorators(deco_node, source)
+                decorators = [self._node_text(d, source) for d in deco_nodes]
                 start_line = name_node.start_point[0] + 1
                 end_line = m_node.end_point[0] + 1
 
@@ -428,35 +437,40 @@ class TreeSitterParser:
         return methods
 
     def _py_extract_params(self, params_node: Optional[Node], source: str) -> List[dict]:
-        """Extract function parameters."""
+        """Extract function parameters from a parameters node."""
         if params_node is None:
             return []
         args: List[dict] = []
-        # tree-sitter python grammar has parameter nodes as children
         for child in params_node.children:
             if child.type == "identifier":
-                # Simple parameter: name
+                # Simple parameter: name (e.g., 'self', 'x')
                 args.append({"name": self._node_text(child, source),
                              "type_annotation": None, "default": None})
             elif child.type == "typed_parameter":
                 # name: type
-                name = type_ann = default = None
+                name = type_ann = None
                 for c in child.children:
                     if c.type == "identifier":
                         name = self._node_text(c, source)
                     elif c.type == "type":
                         type_ann = self._node_text(c, source)
                 if name:
-                    args.append({"name": name, "type_annotation": type_ann, "default": default})
-            elif child.type == "default_parameter":
-                # name=value or name: type = value
+                    args.append({"name": name, "type_annotation": type_ann, "default": None})
+            elif child.type == "typed_default_parameter":
+                # name: type = default  OR  name = default
                 name = type_ann = default = None
                 for c in child.children:
                     if c.type == "identifier":
                         name = self._node_text(c, source)
                     elif c.type == "type":
                         type_ann = self._node_text(c, source)
-                    elif c.type not in ("=", "typed_default_parameter"):
+                    elif c.type == "string":
+                        default = self._node_text(c, source)
+                    elif c.type == "none":
+                        default = "None"
+                    elif c.type in ("true", "false"):
+                        default = self._node_text(c, source)
+                    elif c.type == "integer":
                         default = self._node_text(c, source)
                 if name:
                     args.append({"name": name, "type_annotation": type_ann, "default": default})
@@ -464,6 +478,12 @@ class TreeSitterParser:
                 args.append({"name": "*args", "type_annotation": None, "default": None})
             elif child.type == "dictionary_splat_pattern":
                 args.append({"name": "**kwargs", "type_annotation": None, "default": None})
+            elif child.type == "tuple_pattern":
+                # Multiple parameters in a tuple like (x, y)
+                for c in child.children:
+                    if c.type == "identifier":
+                        args.append({"name": self._node_text(c, source),
+                                     "type_annotation": None, "default": None})
         return args
 
     def _py_extract_bases(self, bases_node: Optional[Node], source: str) -> List[str]:
@@ -475,10 +495,6 @@ class TreeSitterParser:
                 bases.append(self._node_text(child, source))
         return bases
 
-    def _py_extract_decorators(self, deco_node: Optional[Node], source: str) -> List[str]:
-        if deco_node is None:
-            return []
-        return [self._node_text(deco_node, source)]
 
     def _py_extract_imports(
         self, root: Node, source: str, lang: Language
@@ -499,10 +515,9 @@ class TreeSitterParser:
           name: (dotted_name) @name) @stmt
         """
         try:
-            q = Query(lang, import_query)
-            for _, caps in q.matches(root):
-                name_node = caps.get("name")
-                module_node = caps.get("module")
+            for _, caps in self._query_matches(lang, import_query, root):
+                name_node = self._first(caps, "name")
+                module_node = self._first(caps, "module")
 
                 if name_node:
                     name = self._node_text(name_node, source)
@@ -528,14 +543,13 @@ class TreeSitterParser:
     def _py_func_docstring(self, func_node: Node, source: str, lang: Language) -> Optional[str]:
         """Extract function docstring via query."""
         try:
-            q = Query(lang, """
+            for _, caps in self._query_matches(lang, """
             (function_definition
               body: (block
                 (expression_statement
                   (string) @doc)))
-            """)
-            for _, caps in q.matches(func_node):
-                doc = caps.get("doc")
+            """, func_node):
+                doc = self._first(caps, "doc")
                 if doc:
                     return self._node_text(doc, source).strip("'\"")
         except Exception:
@@ -545,14 +559,13 @@ class TreeSitterParser:
     def _py_class_docstring(self, class_node: Node, source: str, lang: Language) -> Optional[str]:
         """Extract class docstring."""
         try:
-            q = Query(lang, """
+            for _, caps in self._query_matches(lang, """
             (class_definition
               body: (block
                 (expression_statement
                   (string) @doc)))
-            """)
-            for _, caps in q.matches(class_node):
-                doc = caps.get("doc")
+            """, class_node):
+                doc = self._first(caps, "doc")
                 if doc:
                     return self._node_text(doc, source).strip("'\"")
         except Exception:
@@ -683,19 +696,17 @@ class TreeSitterParser:
           arguments: (arguments (string (string_fragment) @src)))
         """
         try:
-            q = Query(lang, import_q)
-            for _, caps in q.matches(root):
-                src = caps.get("src")
-                fn = caps.get("fn")
-                if src:
-                    import_path = self._node_text(src, source)
-                    # strip quotes
+            for _, caps in self._query_matches(lang, import_q, root):
+                src_node = self._first(caps, "src")
+                fn_node = self._first(caps, "fn")
+                if src_node:
+                    import_path = self._node_text(src_node, source)
                     for qchar in "'\"`":
                         import_path = import_path.strip(qchar)
                     imports.append(import_path)
-                elif fn:
-                    if self._node_text(fn, source) in ("require", "import"):
-                        pass  # handled by src capture above
+                elif fn_node:
+                    if self._node_text(fn_node, source) in ("require", "import"):
+                        pass
         except Exception:
             logger.warning("TS import extraction failed", exc_info=True)
 
@@ -725,11 +736,9 @@ class TreeSitterParser:
           source: (string) @re_export)
         """
         try:
-            q = Query(lang, export_q)
-            for _, caps in q.matches(root):
-                decl = caps.get("decl")
+            for _, caps in self._query_matches(lang, export_q, root):
+                decl = self._first(caps, "decl")
                 if decl:
-                    # Try to get the name from the declaration
                     for child in decl.children:
                         if child.type in ("identifier", "type_identifier"):
                             exports.append(self._node_text(child, source))
@@ -761,10 +770,9 @@ class TreeSitterParser:
           name: (property_identifier) @name) @def
         """
         try:
-            q = Query(lang, func_q)
-            for _, caps in q.matches(root):
-                name_node = caps.get("name")
-                def_node = caps.get("def")
+            for _, caps in self._query_matches(lang, func_q, root):
+                name_node = self._first(caps, "name")
+                def_node = self._first(caps, "def")
                 if not name_node:
                     continue
                 name = self._node_text(name_node, source)
@@ -797,11 +805,10 @@ class TreeSitterParser:
           body: (class_body) @body) @def
         """
         try:
-            q = Query(lang, class_q)
-            for _, caps in q.matches(root):
-                name_node = caps.get("name")
-                body_node = caps.get("body")
-                def_node = caps.get("def")
+            for _, caps in self._query_matches(lang, class_q, root):
+                name_node = self._first(caps, "name")
+                body_node = self._first(caps, "body")
+                def_node = self._first(caps, "def")
                 if not name_node:
                     continue
                 name = self._node_text(name_node, source)
@@ -833,10 +840,9 @@ class TreeSitterParser:
           name: (property_identifier) @name) @def
         """
         try:
-            q = Query(lang, method_q)
-            for _, caps in q.matches(body_node):
-                name_node = caps.get("name")
-                def_node = caps.get("def")
+            for _, caps in self._query_matches(lang, method_q, body_node):
+                name_node = self._first(caps, "name")
+                def_node = self._first(caps, "def")
                 if not name_node:
                     continue
                 name = self._node_text(name_node, source)
@@ -863,11 +869,10 @@ class TreeSitterParser:
           value: (_) @value) @def
         """
         try:
-            q = Query(lang, iface_q)
-            for _, caps in q.matches(root):
-                name_node = caps.get("name")
-                body_node = caps.get("body")
-                def_node = caps.get("def")
+            for _, caps in self._query_matches(lang, iface_q, root):
+                name_node = self._first(caps, "name")
+                body_node = self._first(caps, "body")
+                def_node = self._first(caps, "def")
                 if not name_node:
                     continue
                 name = self._node_text(name_node, source)
@@ -927,11 +932,10 @@ class TreeSitterParser:
             body: (statement_block) @body)) @def
         """
         try:
-            q = Query(lang, comp_q)
-            for _, caps in q.matches(root):
-                name_node = caps.get("name")
-                body_node = caps.get("body")
-                def_node = caps.get("def")
+            for _, caps in self._query_matches(lang, comp_q, root):
+                name_node = self._first(caps, "name")
+                body_node = self._first(caps, "body")
+                def_node = self._first(caps, "def")
                 if not name_node:
                     continue
                 name = self._node_text(name_node, source)
@@ -978,6 +982,24 @@ class TreeSitterParser:
     # ------------------------------------------------------------------
     # Utilities
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _query_matches(lang: Language, query_src: str, node: Node):
+        """Run a tree-sitter query and yield (match_id, {capture_name: [Node]}) pairs."""
+        q = Query(lang, query_src)
+        cursor = QueryCursor(q)
+        yield from cursor.matches(node)
+
+    @staticmethod
+    def _first(caps: dict, key: str):
+        """Get first captured node for a key, or None."""
+        nodes = caps.get(key)
+        return nodes[0] if nodes else None
+
+    @staticmethod
+    def _all(caps: dict, key: str) -> list:
+        """Get all captured nodes for a key."""
+        return caps.get(key, [])
 
     @staticmethod
     def _node_text(node, source: str) -> str:
