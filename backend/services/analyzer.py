@@ -1,8 +1,10 @@
 """
-Python AST analyzer — extracts structured information from .py files.
-Multi-language dispatch: routes .ts/.tsx/.js/.jsx to TypeScriptAnalyzer.
+Code analyzer — extracts structured information from source files.
 
-Parses Python source files and extracts:
+Uses TreeSitterParser (tree-sitter) for accurate multi-language parsing
+with fallback to stdlib ast (Python) and regex-based TypeScriptAnalyzer.
+
+Parses source files and extracts:
 - Module-level docstrings
 - Classes with methods, bases, decorators
 - Functions with signatures, return types, decorators
@@ -11,32 +13,73 @@ Parses Python source files and extracts:
 """
 
 import ast
+import logging
 import os
 from typing import List, Dict, Optional, Set, Tuple
 
 from models.entities import (
     ModuleInfo, ClassInfo, FunctionInfo, SourceAnchor, SupportedLanguage
 )
-from services.ts_analyzer import TypeScriptAnalyzer
+
+logger = logging.getLogger("code-wiki.analyzer")
+
+# Lazy-loaded singletons
+_ts_analyzer = None
+_tree_sitter_parser = None
+
+
+def _get_tree_sitter():
+    global _tree_sitter_parser
+    if _tree_sitter_parser is None:
+        try:
+            from services.tree_sitter_parser import TreeSitterParser
+            _tree_sitter_parser = TreeSitterParser()
+            langs = _tree_sitter_parser.available_languages
+            logger.info("TreeSitterParser loaded: %s", langs)
+        except Exception as e:
+            logger.info("TreeSitterParser not available: %s", e)
+            _tree_sitter_parser = False  # sentinel for "tried, failed"
+    return _tree_sitter_parser if _tree_sitter_parser is not False else None
+
+
+def _get_ts_analyzer(repo_path: str):
+    global _ts_analyzer
+    if _ts_analyzer is None:
+        from services.ts_analyzer import TypeScriptAnalyzer
+    return TypeScriptAnalyzer(repo_path)
 
 
 class Analyzer:
-    """Parses Python source files using the ast module."""
+    """Unified code analyzer — tree-sitter first, stdlib/regex fallback."""
 
     def __init__(self, repo_path: str):
         self.repo_path = repo_path
+        self._ts_parser = _get_tree_sitter()  # shared singleton
 
     # ---- Public API ----
 
     def analyze_file(self, rel_path: str) -> ModuleInfo:
         """
         Parse a single source file and return structured info.
-        Dispatches to the correct analyzer based on file extension.
+
+        Priority:
+        1. Tree-sitter (accurate, fault-tolerant, multi-language)
+        2. Stdlib ast (Python) / TypeScriptAnalyzer regex (TS/JS)
         """
+        # Try tree-sitter first
+        if self._ts_parser:
+            ext = os.path.splitext(rel_path)[1].lower()
+            lang = SupportedLanguage.from_extension(ext)
+            if lang and self._ts_parser.has_language(lang):
+                try:
+                    return self._ts_parser.parse_file(rel_path, self.repo_path)
+                except Exception as e:
+                    logger.debug("Tree-sitter parse failed for %s: %s — falling back", rel_path, e)
+
+        # Fallback to legacy parser
         ext = os.path.splitext(rel_path)[1].lower()
         if ext in {".ts", ".tsx", ".js", ".jsx"}:
-            ts_analyzer = TypeScriptAnalyzer(self.repo_path)
-            return ts_analyzer.analyze_file(rel_path)
+            return _get_ts_analyzer(self.repo_path).analyze_file(rel_path)
         return self._analyze_python_file(rel_path)
 
     def _analyze_python_file(self, rel_path: str) -> ModuleInfo:

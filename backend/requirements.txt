@@ -6,6 +6,13 @@ httpx>=0.28.0
 rank-bm25>=0.2.2
 FlagEmbedding>=1.2.0
 
+# Tree-sitter — unified multi-language AST parsing (Phase 1)
+tree-sitter>=0.23
+tree-sitter-python>=0.23
+tree-sitter-typescript>=0.23
+tree-sitter-language-pack>=1.10.0
+networkx>=3.0   # Code Knowledge Graph (Phase 3)
+
 # LangChain - RAG orchestration and document processing
 langchain>=0.3.0
 langchain-core>=0.3.0
