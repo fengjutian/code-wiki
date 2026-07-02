@@ -18,8 +18,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from tree_sitter import Language, Node, QueryCursor, Query
-
 from models.entities import (
     CallableEntity, CallEdge, CallGraphData, ModuleInfo, SourceAnchor,
     SupportedLanguage,
@@ -263,12 +261,14 @@ class CallGraphBuilder:
 
     def _find_calls(
         self,
-        root: Node,
+        root: "Node",
         source: str,
-        lang: Language,
+        lang: "Language",
         query_src: str,
     ) -> List[dict]:
         """Run the call query and return structured call information."""
+        from tree_sitter import Query, QueryCursor
+
         calls: List[dict] = []
         q = Query(lang, query_src)
         cursor = QueryCursor(q)

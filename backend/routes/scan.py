@@ -15,6 +15,7 @@ from config import _config, get_wiki_path
 from services.scanner import Scanner
 from services.analyzer import Analyzer
 from services.dependency_graph import DependencyGraph
+from services.analyzer import _get_tree_sitter
 from services.wiki import WikiGenerator
 from services.embedder import Embedder
 from services.index_manager import IndexManager
@@ -237,8 +238,25 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
         )
         dep_graph = DependencyGraph().build(modules)
 
+        # ---- Step 3.5: Build call graph ----
+        call_graph_data = None
+        ts_parser = _get_tree_sitter()
+        if ts_parser:
+            _push_status(
+                status="generating",
+                progress=0.77,
+                current_step="构建函数调用图...",
+            )
+            try:
+                from services.call_graph import CallGraphBuilder
+                builder = CallGraphBuilder(repo_path, ts_parser)
+                call_graph_data = builder.build(modules)
+                logger.info(f"Call graph built: {call_graph_data.total_callables} callables, {call_graph_data.total_edges} edges")
+            except Exception as e:
+                logger.warning(f"Call graph build failed (non-fatal): {e}", exc_info=True)
+
         # ---- Step 4: Save analysis results ----
-        _save_analysis_results(modules, dep_graph, mode)
+        _save_analysis_results(modules, dep_graph, call_graph_data, mode)
 
         # ---- Step 5: Generate Wiki (LLM) ----
         llm_config = _config.get("llm", {})
@@ -368,6 +386,7 @@ async def _run_scan(repo_path: str, mode: str, files: list[str]):
 def _save_analysis_results(
     modules: dict,
     dep_graph: DependencyGraph,
+    call_graph_data,
     mode: str,
 ):
     """Persist analysis output to wiki directory."""
@@ -396,6 +415,14 @@ def _save_analysis_results(
     with open(analysis_path, "w", encoding="utf-8") as f:
         json.dump(analysis_data, f, indent=2, ensure_ascii=False, default=str)
 
+    # Save call graph
+    if call_graph_data is not None:
+        cg_path = wiki_dir / "call_graph.json"
+        cg_dict = _call_graph_to_dict(call_graph_data)
+        with open(cg_path, "w", encoding="utf-8") as f:
+            json.dump(cg_dict, f, indent=2, ensure_ascii=False, default=str)
+        logger.info(f"Call graph saved: {cg_path}")
+
     # Also save Mermaid diagrams
     mermaid_dir = wiki_dir / "diagrams"
     mermaid_dir.mkdir(exist_ok=True)
@@ -405,6 +432,42 @@ def _save_analysis_results(
 
     with open(mermaid_dir / "dependencies.mmd", "w", encoding="utf-8") as f:
         f.write(dep_graph.to_mermaid())
+
+
+def _call_graph_to_dict(cg) -> dict:
+    """Serialize CallGraphData to a JSON-safe dict."""
+    callables = {}
+    for eid, entity in cg.callables.items():
+        callables[eid] = {
+            "id": entity.id,
+            "name": entity.name,
+            "module": entity.module,
+            "parent_class": entity.parent_class,
+            "kind": entity.kind,
+            "anchor": {
+                "file": entity.anchor.file,
+                "line": entity.anchor.line,
+            } if entity.anchor else None,
+            "end_line": entity.end_line,
+        }
+    unresolved = [
+        {
+            "caller_id": e.caller_id,
+            "callee_id": e.callee_id,
+            "resolved": e.resolved,
+            "call_site": {
+                "file": e.call_site.file,
+                "line": e.call_site.line,
+            } if e.call_site else None,
+        }
+        for e in cg.unresolved_calls
+    ]
+    return {
+        "callables": callables,
+        "forward": cg.forward,
+        "reverse": cg.reverse,
+        "unresolved_calls": unresolved,
+    }
 
 
 def _write_state(

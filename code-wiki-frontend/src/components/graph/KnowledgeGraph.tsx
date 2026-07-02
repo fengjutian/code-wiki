@@ -100,6 +100,8 @@ export function KnowledgeGraph() {
   // ---- Load analysis.json: Tauri local file → HTTP API fallback ----
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     (async () => {
       try {
         // Use cache if fresh
@@ -184,8 +186,13 @@ export function KnowledgeGraph() {
     })();
     return () => {
       cancelled = true;
-      cyRef.current?.destroy();
-      cyRef.current = null;
+      if (cyRef.current) {
+        try {
+          cyRef.current.stop();  // stop layout animations first
+          cyRef.current.destroy();
+        } catch { /* ignore destroy errors */ }
+        cyRef.current = null;
+      }
     };
   }, [repoPath, graphMode]);
 
@@ -423,21 +430,8 @@ export function KnowledgeGraph() {
     );
   }
 
-  // ---- Loading / empty / error states ----
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-        加载知识图谱...
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-        {error}
-      </div>
-    );
-  }
+  // ---- Loading / empty / error states (inline — keep toolbar visible) ----
+  // (no early return; toolbar is always rendered so the mode toggle remains accessible)
 
   return (
     <div className="h-full min-h-0 flex flex-col">
@@ -531,6 +525,16 @@ export function KnowledgeGraph() {
       {/* Canvas */}
       <div className="flex-1 min-h-0 relative">
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm bg-background z-10">
+            加载知识图谱...
+          </div>
+        )}
+        {!loading && error && (
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm bg-background z-10">
+            {error}
+          </div>
+        )}
 
         {/* Selected node info */}
         {selectedNode && (
