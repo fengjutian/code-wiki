@@ -320,7 +320,18 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   },
 
   fetchFileTree: async () => {
+    const repoPath = get().repoPath;
     try {
+      // Desktop mode: read file tree directly from local filesystem via Tauri
+      if (repoPath && "__TAURI__" in window) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const tree = await invoke<FileTreeNode[]>("get_file_tree", { repoPath });
+          set({ fileTree: tree });
+          return;
+        } catch { /* fall through to HTTP */ }
+      }
+      // Browser dev mode: HTTP API
       const res = await fetch("/api/files");
       if (res.ok) {
         const tree: FileTreeNode[] = await res.json();
