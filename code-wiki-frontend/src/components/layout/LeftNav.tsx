@@ -22,7 +22,7 @@ export function LeftNav() {
   const setActiveTab = useConfigStore((s) => s.setActiveTab);
 
   return (
-    <nav className="w-16 flex flex-col items-center py-4 gap-1 bg-secondary border-r border-border shrink-0">
+    <nav className="w-16 flex flex-col items-center py-4 gap-1 bg-secondary border-r border-border shrink-0 overflow-y-auto">
       {tabs.map((tab) => (
         <button
           key={tab.id}

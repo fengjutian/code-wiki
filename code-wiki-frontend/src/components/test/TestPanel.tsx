@@ -27,7 +27,8 @@ export function TestPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/health");
+      const baseUrl = "__TAURI__" in window ? "http://localhost:8000" : "";
+      const res = await fetch(`${baseUrl}/api/health`);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
