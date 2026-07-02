@@ -292,32 +292,39 @@ class TreeSitterParser:
         class_functions: List[FunctionInfo] = []
         classes: List[ClassInfo] = []
         seen_func_names: set[str] = set()
-        seen_func_positions: set[tuple] = set()    # dedup: (name, start_line)
-        seen_class_positions: set[tuple] = set()   # dedup: (name, start_line)
 
         # ---- Classes first ----
         try:
+            # First pass: collect all matches (may have one per decorator)
+            class_matches: dict[tuple, dict] = {}  # (name, line) → accum
             for _, caps in self._query_matches(lang, self._PY_CLASS_Q, root):
                 class_node = self._first(caps, "class.def")
                 name_node = self._first(caps, "class.name")
-                body_node = self._first(caps, "class.body")
-                bases_node = self._first(caps, "class.bases")
-                deco_nodes = caps.get("class.deco", [])
-
                 if not (class_node and name_node):
                     continue
-
                 class_name = self._node_text(name_node, source)
-                bases = self._py_extract_bases(bases_node, source)
-                decorators = [self._node_text(d, source) for d in deco_nodes]
                 start_line = name_node.start_point[0] + 1
-                end_line = class_node.end_point[0] + 1
+                key = (class_name, start_line)
 
-                # Deduplicate: decorated_definition also exposes inner class_definition
-                pos_key = (class_name, start_line)
-                if pos_key in seen_class_positions:
-                    continue
-                seen_class_positions.add(pos_key)
+                if key not in class_matches:
+                    class_matches[key] = {
+                        "class_node": class_node,
+                        "body_node": self._first(caps, "class.body"),
+                        "bases_node": self._first(caps, "class.bases"),
+                        "deco_nodes": [],
+                    }
+                # Merge decorators from all matches
+                class_matches[key]["deco_nodes"].extend(caps.get("class.deco", []))
+
+            for key, info in class_matches.items():
+                class_name, start_line = key
+                class_node = info["class_node"]
+                body_node = info["body_node"]
+                bases_node = info["bases_node"]
+
+                bases = self._py_extract_bases(bases_node, source)
+                decorators = [self._node_text(d, source) for d in info["deco_nodes"]]
+                end_line = class_node.end_point[0] + 1
 
                 methods: List[FunctionInfo] = []
                 if body_node:
@@ -341,32 +348,38 @@ class TreeSitterParser:
 
         # ---- Functions ----
         try:
+            # First pass: collect all matches (one per decorator)
+            func_matches: dict[tuple, dict] = {}
             for _, caps in self._query_matches(lang, self._PY_FUNC_Q, root):
                 func_node = self._first(caps, "func.def")
                 name_node = self._first(caps, "func.name")
-                params_node = self._first(caps, "func.params")
-                ret_node = self._first(caps, "func.ret")
-                deco_nodes = caps.get("func.deco", [])
-
                 if not (func_node and name_node):
                     continue
-
                 func_name = self._node_text(name_node, source)
+                start_line = name_node.start_point[0] + 1
+                key = (func_name, start_line)
+
+                if key not in func_matches:
+                    func_matches[key] = {
+                        "func_node": func_node,
+                        "params_node": self._first(caps, "func.params"),
+                        "ret_node": self._first(caps, "func.ret"),
+                        "deco_nodes": [],
+                    }
+                func_matches[key]["deco_nodes"].extend(caps.get("func.deco", []))
+
+            for key, info in func_matches.items():
+                func_name, start_line = key
+                func_node = info["func_node"]
+
                 if func_name in seen_func_names:
                     continue
                 seen_func_names.add(func_name)
 
-                args = self._py_extract_params(params_node, source)
-                returns = self._node_text(ret_node, source) if ret_node else None
-                decorators = [self._node_text(d, source) for d in deco_nodes]
-                start_line = name_node.start_point[0] + 1
+                args = self._py_extract_params(info["params_node"], source)
+                returns = self._node_text(info["ret_node"], source) if info["ret_node"] else None
+                decorators = [self._node_text(d, source) for d in info["deco_nodes"]]
                 end_line = func_node.end_point[0] + 1
-
-                # Deduplicate: decorated functions also expose inner function_definition
-                pos_key = (func_name, start_line)
-                if pos_key in seen_func_positions:
-                    continue
-                seen_func_positions.add(pos_key)
 
                 fn = FunctionInfo(
                     name=func_name,
@@ -474,6 +487,22 @@ class TreeSitterParser:
                         default = self._node_text(c, source)
                 if name:
                     args.append({"name": name, "type_annotation": type_ann, "default": default})
+            elif child.type == "default_parameter":
+                # Just a name = value (NO type annotation)
+                name = default = None
+                for c in child.children:
+                    if c.type == "identifier":
+                        name = self._node_text(c, source)
+                    elif c.type == "string":
+                        default = self._node_text(c, source)
+                    elif c.type == "none":
+                        default = "None"
+                    elif c.type in ("true", "false"):
+                        default = self._node_text(c, source)
+                    elif c.type == "integer":
+                        default = self._node_text(c, source)
+                if name:
+                    args.append({"name": name, "type_annotation": None, "default": default})
             elif child.type == "list_splat_pattern":
                 args.append({"name": "*args", "type_annotation": None, "default": None})
             elif child.type == "dictionary_splat_pattern":
@@ -983,10 +1012,24 @@ class TreeSitterParser:
     # Utilities
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _query_matches(lang: Language, query_src: str, node: Node):
-        """Run a tree-sitter query and yield (match_id, {capture_name: [Node]}) pairs."""
-        q = Query(lang, query_src)
+    # Compiled query cache: (query_src_hash) → Query  (lives on the instance)
+    _query_cache: dict = {}
+
+    def _get_query(self, lang: Language, query_src: str) -> Query:
+        """Get a compiled Query, caching by (lang_name, query_src)."""
+        key = (lang.name, query_src)
+        q = self._query_cache.get(key)
+        if q is None:
+            q = Query(lang, query_src)
+            self._query_cache[key] = q
+        return q
+
+    def _query_matches(self, lang: Language, query_src: str, node: Node):
+        """Run a tree-sitter query and yield (match_id, {capture_name: [Node]}) pairs.
+
+        Uses a per-instance cache to avoid recompiling queries on every call.
+        """
+        q = self._get_query(lang, query_src)
         cursor = QueryCursor(q)
         yield from cursor.matches(node)
 

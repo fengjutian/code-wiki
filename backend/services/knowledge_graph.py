@@ -377,5 +377,9 @@ class CodeKnowledgeGraph:
         else:
             self.edges[key] = {"relation": relation, **extra}
 
-        self._adj.setdefault(src, {}).setdefault(tgt, []).append(relation)
-        self._rev_adj.setdefault(tgt, {}).setdefault(src, []).append(relation)
+        adj_list = self._adj.setdefault(src, {}).setdefault(tgt, [])
+        if relation not in adj_list:
+            adj_list.append(relation)
+        rev_list = self._rev_adj.setdefault(tgt, {}).setdefault(src, [])
+        if relation not in rev_list:
+            rev_list.append(relation)
