@@ -11,7 +11,7 @@ const tabs = [
   { id: "search" as const, label: "搜索", icon: SearchIcon },
   { id: "impact" as const, label: "影响", icon: AlertTriangleIcon },
   { id: "metrics" as const, label: "指标", icon: GaugeIcon },
-  { id: "settings" as const, label: "设置", icon: SettingsIcon },
+  // { id: "settings" as const, label: "设置", icon: SettingsIcon },
   { id: "test" as const, label: "检测", icon: ActivityIcon },
   { id: "guide" as const, label: "指南", icon: LightbulbIcon },
   { id: "schema" as const, label: "数据", icon: DatabaseIcon },
