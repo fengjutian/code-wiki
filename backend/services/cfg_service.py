@@ -17,7 +17,14 @@ class CFGService:
         nesting_depth, blocks_count, unreachable_blocks, mermaid} or {error: ...}."""
         full_path = Path(repo_path) / file
         if not full_path.exists():
-            return {"error": f"File not found: {file}"}
+            # Try stripping the repo dirname prefix (e.g. "order\backend\..." → "backend\...")
+            repo_name = Path(repo_path).name  # e.g. "order"
+            alt = file.removeprefix(repo_name + "\\").removeprefix(repo_name + "/").removeprefix("\\").removeprefix("/")
+            alt_path = Path(repo_path) / alt
+            if alt != file and alt_path.exists():
+                full_path = alt_path
+            else:
+                return {"error": f"File not found: {file}"}
 
         source = full_path.read_text(encoding="utf-8", errors="replace")
 
