@@ -59,7 +59,9 @@ class CFGService:
 
 
 def _find_function_node(root, source: str, name: str):
-    """Find a function definition node by name in a tree-sitter AST."""
+    """Find a function definition node by name in a tree-sitter AST.
+    Recursively searches into class bodies and nested structures."""
+    # Check direct function definitions
     for child in root.children:
         if child.type == "function_definition":
             for c in child.children:
@@ -73,4 +75,13 @@ def _find_function_node(root, source: str, name: str):
                         if c.type == "identifier":
                             if source[c.start_byte:c.end_byte] == name:
                                 return sub
+    # Recurse into class bodies and other scopes
+    for child in root.children:
+        if child.type in ("class_definition", "block", "if_statement",
+                          "for_statement", "while_statement", "with_statement",
+                          "try_statement", "except_clause", "else_clause",
+                          "finally_clause", "elif_clause", "match_statement"):
+            result = _find_function_node(child, source, name)
+            if result is not None:
+                return result
     return None
