@@ -35,6 +35,11 @@ class HealthResponse(BaseModel):
     health_score: Optional[float] = None
     hotspots: List[HotspotItem] = Field(default_factory=list)
     complex_functions: List = Field(default_factory=list)  # [(name, cc), ...]
+    # Additional metrics from analysis.json
+    language_breakdown: dict[str, int] = Field(default_factory=dict)
+    docstring_coverage: float = 0.0           # 0.0-1.0, functions with docstrings / total
+    external_deps: int = 0                     # unique external packages imported
+    total_imports: int = 0                     # internal import edges
     note: Optional[str] = None
 
 

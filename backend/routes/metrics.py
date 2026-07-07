@@ -312,6 +312,37 @@ async def get_health_metrics():
         # ---- Recompute health score with actual data ----
         health.overall_health_score = calc._compute_score(health)
 
+        # ---- Additional metrics from analysis.json ----
+        # Language breakdown
+        language_breakdown: dict[str, int] = {}
+        for m in modules_info.values():
+            lang = m.get("language", "python")
+            language_breakdown[lang] = language_breakdown.get(lang, 0) + 1
+
+        # Docstring coverage (% of functions+methods that have a docstring)
+        total_funcs_methods = 0
+        docstring_count = 0
+        for m in modules_info.values():
+            for fn in m.get("functions", []):
+                total_funcs_methods += 1
+                if fn.get("docstring"):
+                    docstring_count += 1
+            for cls in m.get("classes", []):
+                for method in cls.get("methods", []):
+                    total_funcs_methods += 1
+                    if method.get("docstring"):
+                        docstring_count += 1
+        docstring_coverage = round(docstring_count / max(total_funcs_methods, 1), 2)
+
+        # External dependencies (unique)
+        external_deps_set: set[str] = set()
+        total_imports = 0
+        for m in modules_info.values():
+            for ext in m.get("external_imports", []):
+                external_deps_set.add(ext)
+            total_imports += len(m.get("imports", []))
+        external_deps = len(external_deps_set)
+
         result = {
             "total_modules": health.total_modules,
             "total_functions": health.total_functions,
@@ -326,6 +357,10 @@ async def get_health_metrics():
             "health_score": health.overall_health_score,
             "hotspots": health.risk_hotspots,
             "complex_functions": health.complex_functions,
+            "language_breakdown": language_breakdown,
+            "docstring_coverage": docstring_coverage,
+            "external_deps": external_deps,
+            "total_imports": total_imports,
         }
         return result
     except ImportError:

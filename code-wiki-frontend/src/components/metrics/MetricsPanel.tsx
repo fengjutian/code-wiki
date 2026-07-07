@@ -15,6 +15,10 @@ interface HealthData {
   health_score?: number;
   hotspots?: { file: string; risk_score: number; reasons: string[] }[];
   complex_functions?: [string, number][];
+  language_breakdown?: Record<string, number>;
+  docstring_coverage?: number;
+  external_deps?: number;
+  total_imports?: number;
 }
 
 export function MetricsPanel() {
@@ -98,6 +102,28 @@ export function MetricsPanel() {
         <MetricCard icon={<AlertTriangle size={18} />} label="圈复杂度(平均)" value={(data.avg_cyclomatic_complexity ?? 0).toFixed(1)} />
       </div>
 
+      {/* Second Metrics Row: Quality & Scale */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <MetricCard icon={<span className="text-lg">📄</span>} label="文档覆盖率" value={`${Math.round((data.docstring_coverage ?? 0) * 100)}%`} />
+        <MetricCard icon={<span className="text-lg">📦</span>} label="外部依赖" value={data.external_deps ?? 0} />
+        <MetricCard icon={<span className="text-lg">🔗</span>} label="内部导入" value={data.total_imports ?? 0} />
+        <MetricCard icon={<span className="text-lg">📝</span>} label="总行数" value={data.total_lines ?? 0} />
+      </div>
+
+      {/* Language Breakdown */}
+      {data.language_breakdown && Object.keys(data.language_breakdown).length > 0 && (
+        <div className="mb-8 p-4 rounded-lg bg-card border border-border">
+          <h3 className="text-sm font-medium mb-3">语言分布</h3>
+          <div className="flex flex-wrap gap-3">
+            {Object.entries(data.language_breakdown).map(([lang, count]) => (
+              <span key={lang} className="px-3 py-1.5 rounded-full bg-accent text-xs font-mono">
+                {lang}: <strong>{count}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Complexity & Coupling */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="p-4 rounded-lg bg-card border border-border">
@@ -105,8 +131,6 @@ export function MetricsPanel() {
           <div className="space-y-2 text-xs">
             <Row label="平均圈复杂度" value={data.avg_cyclomatic_complexity?.toFixed(1) ?? "-"} />
             <Row label="最大圈复杂度" value={data.max_cyclomatic_complexity ?? "-"} />
-            <Row label="孤立模块" value={data.isolated_modules ?? 0} />
-            <Row label="总行数" value={data.total_lines ?? 0} />
           </div>
         </div>
         <div className="p-4 rounded-lg bg-card border border-border">
@@ -115,6 +139,7 @@ export function MetricsPanel() {
             <Row label="平均耦合度" value={data.avg_coupling?.toFixed(1) ?? "-"} />
             <Row label="最大耦合度" value={data.max_coupling ?? "-"} />
             <Row label="总类数" value={data.total_classes ?? 0} />
+            <Row label="孤立模块" value={data.isolated_modules ?? 0} />
           </div>
         </div>
       </div>
