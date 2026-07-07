@@ -40,6 +40,11 @@ class HealthResponse(BaseModel):
     docstring_coverage: float = 0.0           # 0.0-1.0, functions with docstrings / total
     external_deps: int = 0                     # unique external packages imported
     total_imports: int = 0                     # internal import edges
+    score_breakdown: list[dict] = Field(default_factory=list)  # scoring formula steps
+    # Code smell counts
+    long_functions: int = 0
+    many_params_functions: int = 0
+    god_classes: int = 0
     note: Optional[str] = None
 
 

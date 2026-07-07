@@ -19,6 +19,10 @@ interface HealthData {
   docstring_coverage?: number;
   external_deps?: number;
   total_imports?: number;
+  score_breakdown?: { factor: string; detail: string; effect: string; score: number }[];
+  long_functions?: number;
+  many_params_functions?: number;
+  god_classes?: number;
 }
 
 export function MetricsPanel() {
@@ -94,6 +98,46 @@ export function MetricsPanel() {
         </p>
       </div>
 
+      {/* Score Breakdown */}
+      {(data.score_breakdown ?? []).length > 0 && (
+        <div className="mb-8 p-4 rounded-lg bg-card border border-border">
+          <h3 className="text-sm font-medium mb-3">📊 评分公式分解</h3>
+          <div className="space-y-1">
+            {data.score_breakdown!.map((step, i) => {
+              const isFinal = step.factor === "最终评分";
+              const isBase = step.factor === "基础分";
+              const isPositive = step.effect.startsWith("+");
+              const isNegative = step.effect.startsWith("-");
+              return (
+                <div key={i} className={`flex items-center justify-between p-2 rounded text-xs ${
+                  isFinal ? "bg-accent font-bold" : isBase ? "bg-accent/50" : ""
+                }`}>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium">{step.factor}</span>
+                    {step.detail && (
+                      <span className="text-muted-foreground ml-2">{step.detail}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 ml-3">
+                    <span className={`font-mono font-bold ${
+                      isPositive ? "text-green-500" :
+                      isNegative ? "text-red-500" :
+                      isFinal ? "text-foreground" :
+                      "text-muted-foreground"
+                    }`}>{step.effect}</span>
+                    {!isFinal && !isBase && (
+                      <span className="text-muted-foreground font-mono w-10 text-right">
+                        → {step.score.toFixed(0)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <MetricCard icon={<Code2 size={18} />} label="模块数" value={data.total_modules ?? 0} />
@@ -125,7 +169,7 @@ export function MetricsPanel() {
       )}
 
       {/* Complexity & Coupling */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="p-4 rounded-lg bg-card border border-border">
           <h3 className="text-sm font-medium mb-3">复杂度</h3>
           <div className="space-y-2 text-xs">
@@ -140,6 +184,14 @@ export function MetricsPanel() {
             <Row label="最大耦合度" value={data.max_coupling ?? "-"} />
             <Row label="总类数" value={data.total_classes ?? 0} />
             <Row label="孤立模块" value={data.isolated_modules ?? 0} />
+          </div>
+        </div>
+        <div className="p-4 rounded-lg bg-card border border-border">
+          <h3 className="text-sm font-medium mb-3">代码异味</h3>
+          <div className="space-y-2 text-xs">
+            <Row label="过长函数 (>50行)" value={data.long_functions ?? "-"} />
+            <Row label="过多参数 (>5个)" value={data.many_params_functions ?? "-"} />
+            <Row label="过大类 (>10方法)" value={data.god_classes ?? "-"} />
           </div>
         </div>
       </div>

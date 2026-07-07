@@ -309,8 +309,35 @@ async def get_health_metrics():
             )
             health.max_cyclomatic_complexity = int(max(complexities))
 
+        # ---- Code smell detection ----
+        long_funcs = 0
+        many_params = 0
+        god_classes = 0
+        for m in modules_info.values():
+            for fn in m.get("functions", []):
+                end = fn.get("end_line", 0)
+                line = (fn.get("anchor") or {}).get("line", 0)
+                if end > 0 and line > 0 and (end - line) > 50:
+                    long_funcs += 1
+                if len(fn.get("args", [])) > 5:
+                    many_params += 1
+            for cls in m.get("classes", []):
+                if len(cls.get("methods", [])) > 10:
+                    god_classes += 1
+                for method in cls.get("methods", []):
+                    end = method.get("end_line", 0)
+                    line = (method.get("anchor") or {}).get("line", 0)
+                    if end > 0 and line > 0 and (end - line) > 50:
+                        long_funcs += 1
+                    if len(method.get("args", [])) > 5:
+                        many_params += 1
+        health.long_functions = long_funcs
+        health.many_params_functions = many_params
+        health.god_classes = god_classes
+
         # ---- Recompute health score with actual data ----
         health.overall_health_score = calc._compute_score(health)
+        score_breakdown = calc._compute_breakdown(health)
 
         # ---- Additional metrics from analysis.json ----
         # Language breakdown
@@ -361,6 +388,10 @@ async def get_health_metrics():
             "docstring_coverage": docstring_coverage,
             "external_deps": external_deps,
             "total_imports": total_imports,
+            "score_breakdown": score_breakdown,
+            "long_functions": health.long_functions,
+            "many_params_functions": health.many_params_functions,
+            "god_classes": health.god_classes,
         }
         return result
     except ImportError:
