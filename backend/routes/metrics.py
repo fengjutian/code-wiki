@@ -33,14 +33,13 @@ search_router = APIRouter()       # /api/search/*
 # Repository — lazy singleton
 # ---------------------------------------------------------------------------
 
-_repo: Optional[AnalysisRepository] = None
+# Lazy-loaded repositories: always use get_wiki_path() for current path.
+_repo = None  # kept for backward compat in other routes
 
 
 def _get_repo() -> AnalysisRepository:
-    global _repo
-    if _repo is None:
-        _repo = AnalysisRepository(get_wiki_path())
-    return _repo
+    """Return a repository pointing to the *current* wiki path (not cached)."""
+    return AnalysisRepository(get_wiki_path())
 
 
 # ---------------------------------------------------------------------------

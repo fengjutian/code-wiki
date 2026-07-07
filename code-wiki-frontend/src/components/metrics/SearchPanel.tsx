@@ -5,6 +5,8 @@ export function SearchPanel() {
   const [results, setResults] = useState<Array<{file: string; line: number; match: string; language: string}>>([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"pattern" | "custom">("pattern");
+  const [customQuery, setCustomQuery] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -15,7 +17,7 @@ export function SearchPanel() {
     })();
   }, []);
 
-  const search = async (pattern: string) => {
+  const searchPattern = async (pattern: string) => {
     setSelected(pattern);
     setLoading(true);
     try {
@@ -25,22 +27,72 @@ export function SearchPanel() {
     setLoading(false);
   };
 
+  const searchCustom = async () => {
+    if (!customQuery.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/search/pattern?query=${encodeURIComponent(customQuery)}`);
+      if (res.ok) setResults((await res.json()).results || []);
+    } catch { /* */ }
+    setLoading(false);
+  };
+
   return (
     <div className="h-full min-h-0 overflow-y-auto p-6">
       <h2 className="text-lg font-semibold mb-6">语义代码搜索</h2>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {patterns.map(p => (
-          <button key={p.name} onClick={() => search(p.name)}
-            className={`px-3 py-1.5 text-xs rounded transition-colors ${
-              selected === p.name ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-accent"
-            }`}
-            title={p.description}>
-            {p.label}
-            <span className="ml-1 text-[10px] opacity-60">({p.languages.join(",")})</span>
-          </button>
-        ))}
+      {/* ---- 模式切换 ---- */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setMode("pattern")}
+          className={`px-3 py-1.5 text-xs rounded transition-colors ${mode === "pattern" ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-accent"}`}
+        >
+          预定义模式
+        </button>
+        <button
+          onClick={() => setMode("custom")}
+          className={`px-3 py-1.5 text-xs rounded transition-colors ${mode === "custom" ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-accent"}`}
+        >
+          自定义正则
+        </button>
       </div>
+
+      {/* ---- 自定义搜索框 ---- */}
+      {mode === "custom" && (
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={customQuery}
+            onChange={(e) => setCustomQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && searchCustom()}
+            placeholder="输入正则表达式，如: os\.environ|\.execute\s*\(|fetch\s*\(.*https?://"
+            className="flex-1 px-3 py-1.5 text-sm rounded border border-input bg-background font-mono"
+          />
+          <button
+            onClick={searchCustom}
+            disabled={!customQuery.trim()}
+            className="px-4 py-1.5 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50"
+          >
+            搜索
+          </button>
+        </div>
+      )}
+
+      {/* ---- 模式按钮 ---- */}
+      {mode === "pattern" && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {patterns.map(p => (
+            <button key={p.name} onClick={() => searchPattern(p.name)}
+              className={`px-3 py-1.5 text-xs rounded transition-colors ${
+                selected === p.name ? "bg-primary text-primary-foreground" : "bg-secondary hover:bg-accent"
+              }`}
+              title={p.description}>
+              {p.label}
+              <span className="ml-1 text-[10px] opacity-60">({p.languages.join(",")})</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading && <p className="text-sm text-muted-foreground">搜索中...</p>}
 
@@ -59,8 +111,17 @@ export function SearchPanel() {
 
       {!loading && results.length === 0 && (
         <div className="text-sm text-muted-foreground mt-12 text-center">
-          <p>选择一个搜索模式开始搜索</p>
-          <p className="text-xs mt-1">支持: 环境变量读取、SQL 查询、HTTP 请求、文件写入等</p>
+          {mode === "pattern" ? (
+            <>
+              <p>选择一个搜索模式开始搜索</p>
+              <p className="text-xs mt-1">支持: 环境变量读取、SQL 查询、HTTP 请求、文件写入等</p>
+            </>
+          ) : (
+            <>
+              <p>输入正则表达式搜索代码</p>
+              <p className="text-xs mt-1">例如: os\.environ、\.execute\s*\(、fetch\s*\(</p>
+            </>
+          )}
         </div>
       )}
     </div>
