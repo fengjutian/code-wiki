@@ -23,6 +23,9 @@ interface HealthData {
   long_functions?: number;
   many_params_functions?: number;
   god_classes?: number;
+  long_function_list?: { file: string; name: string; value: number }[];
+  many_params_list?: { file: string; name: string; value: number }[];
+  god_class_list?: { file: string; name: string; value: number }[];
 }
 
 export function MetricsPanel() {
@@ -195,6 +198,55 @@ export function MetricsPanel() {
           </div>
         </div>
       </div>
+
+      {/* Code Smell Details */}
+      {(data.long_function_list ?? []).length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+            <span className="text-red-500">⚠</span> 过长函数 ({data.long_function_list!.length})
+          </h3>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {data.long_function_list!.map((item, i) => (
+              <div key={i} className="flex items-center justify-between p-2 rounded bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 text-xs">
+                <code className="font-mono truncate max-w-[300px]">{item.file} :: {item.name}</code>
+                <span className="text-red-600 font-bold shrink-0 ml-2">{item.value} 行</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(data.many_params_list ?? []).length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+            <span className="text-yellow-500">⚠</span> 过多参数 ({data.many_params_list!.length})
+          </h3>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {data.many_params_list!.map((item, i) => (
+              <div key={i} className="flex items-center justify-between p-2 rounded bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900 text-xs">
+                <code className="font-mono truncate max-w-[300px]">{item.file} :: {item.name}</code>
+                <span className="text-yellow-600 font-bold shrink-0 ml-2">{item.value} 个参数</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(data.god_class_list ?? []).length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+            <span className="text-orange-500">⚠</span> 过大类 ({data.god_class_list!.length})
+          </h3>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {data.god_class_list!.map((item, i) => (
+              <div key={i} className="flex items-center justify-between p-2 rounded bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900 text-xs">
+                <code className="font-mono truncate max-w-[300px]">{item.file} :: {item.name}</code>
+                <span className="text-orange-600 font-bold shrink-0 ml-2">{item.value} 个方法</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Risk Hotspots */}
       {(data.hotspots ?? []).length > 0 && (

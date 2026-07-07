@@ -21,6 +21,13 @@ class HotspotItem(BaseModel):
     reasons: List[str] = Field(default_factory=list)
 
 
+class SmellItem(BaseModel):
+    """Single code smell occurrence."""
+    file: str
+    name: str
+    value: int = 0          # lines for long func, params count, or methods count
+
+
 class HealthResponse(BaseModel):
     total_modules: int = 0
     total_functions: int = 0
@@ -45,6 +52,9 @@ class HealthResponse(BaseModel):
     long_functions: int = 0
     many_params_functions: int = 0
     god_classes: int = 0
+    long_function_list: List[SmellItem] = Field(default_factory=list)
+    many_params_list: List[SmellItem] = Field(default_factory=list)
+    god_class_list: List[SmellItem] = Field(default_factory=list)
     note: Optional[str] = None
 
 

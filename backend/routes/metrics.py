@@ -313,24 +313,38 @@ async def get_health_metrics():
         long_funcs = 0
         many_params = 0
         god_classes = 0
+        long_func_list: list[dict] = []
+        many_params_list: list[dict] = []
+        god_class_list: list[dict] = []
         for m in modules_info.values():
+            mod_path = m.get("path", "?")
             for fn in m.get("functions", []):
                 end = fn.get("end_line", 0)
                 line = (fn.get("anchor") or {}).get("line", 0)
-                if end > 0 and line > 0 and (end - line) > 50:
+                length = end - line if end > 0 and line > 0 else 0
+                if length > 50:
                     long_funcs += 1
-                if len(fn.get("args", [])) > 5:
+                    long_func_list.append({"file": mod_path, "name": fn.get("name", "?"), "value": length})
+                n_params = len(fn.get("args", []))
+                if n_params > 5:
                     many_params += 1
+                    many_params_list.append({"file": mod_path, "name": fn.get("name", "?"), "value": n_params})
             for cls in m.get("classes", []):
-                if len(cls.get("methods", [])) > 10:
+                n_methods = len(cls.get("methods", []))
+                if n_methods > 10:
                     god_classes += 1
+                    god_class_list.append({"file": mod_path, "name": cls.get("name", "?"), "value": n_methods})
                 for method in cls.get("methods", []):
                     end = method.get("end_line", 0)
                     line = (method.get("anchor") or {}).get("line", 0)
-                    if end > 0 and line > 0 and (end - line) > 50:
+                    length = end - line if end > 0 and line > 0 else 0
+                    if length > 50:
                         long_funcs += 1
-                    if len(method.get("args", [])) > 5:
+                        long_func_list.append({"file": mod_path, "name": f"{cls.get('name', '?')}.{method.get('name', '?')}", "value": length})
+                    n_params = len(method.get("args", []))
+                    if n_params > 5:
                         many_params += 1
+                        many_params_list.append({"file": mod_path, "name": f"{cls.get('name', '?')}.{method.get('name', '?')}", "value": n_params})
         health.long_functions = long_funcs
         health.many_params_functions = many_params
         health.god_classes = god_classes
@@ -392,6 +406,9 @@ async def get_health_metrics():
             "long_functions": health.long_functions,
             "many_params_functions": health.many_params_functions,
             "god_classes": health.god_classes,
+            "long_function_list": long_func_list,
+            "many_params_list": many_params_list,
+            "god_class_list": god_class_list,
         }
         return result
     except ImportError:
