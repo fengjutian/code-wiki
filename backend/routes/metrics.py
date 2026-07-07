@@ -609,6 +609,22 @@ async def get_cfg(
     return svc.generate(repo_path, file, function)
 
 
+@metrics_router.get("/icfg", response_model=dict)
+async def get_icfg(
+    function: str = Query(..., description="Function name to generate ICFG for"),
+    file: str = Query("", description="Optional relative file path to disambiguate"),
+):
+    """Return Interprocedural CFG using call graph data."""
+    from services.cfg_service import ICFGService
+    cfg_config = get_config()
+    repo_path = cfg_config.get("repo_path", "")
+    if not repo_path:
+        return {"error": "No repository configured. Please set repo_path in settings."}
+
+    svc = ICFGService()
+    return svc.generate(repo_path, function, file)
+
+
 # ---------------------------------------------------------------------------
 # Impact helpers
 # ---------------------------------------------------------------------------

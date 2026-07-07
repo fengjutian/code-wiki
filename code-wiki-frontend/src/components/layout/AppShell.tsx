@@ -9,6 +9,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { KnowledgeGraph } from "@/components/graph/KnowledgeGraph";
 import { MetricsPanel } from "@/components/metrics/MetricsPanel";
 import { CFGPanel } from "@/components/metrics/CFGPanel";
+import { ICFGPanel } from "@/components/metrics/ICFGPanel";
 import { SearchPanel } from "@/components/metrics/SearchPanel";
 import { ImpactPanel } from "@/components/metrics/ImpactPanel";
 import { GuidePanel } from "@/components/guide/GuidePanel";
@@ -50,6 +51,7 @@ export function AppShell() {
             {activeTab === "graph" && <KnowledgeGraph />}
             {activeTab === "metrics" && <MetricsPanel />}
             {activeTab === "cfg" && <CFGPanel />}
+            {activeTab === "icfg" && <ICFGPanel />}
             {activeTab === "search" && <SearchPanel />}
             {activeTab === "impact" && <ImpactPanel />}
             {activeTab === "guide" && <GuidePanel />}

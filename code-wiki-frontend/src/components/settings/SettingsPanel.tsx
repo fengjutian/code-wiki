@@ -5,6 +5,10 @@ export function SettingsPanel() {
   const llm = useConfigStore((s) => s.llm);
   const setLLM = useConfigStore((s) => s.setLLM);
   const saveConfig = useConfigStore((s) => s.saveConfig);
+  const repoPath = useConfigStore((s) => s.repoPath);
+  const setRepoPath = useConfigStore((s) => s.setRepoPath);
+  const wikiPath = useConfigStore((s) => s.wikiPath);
+  const setWikiPath = useConfigStore((s) => s.setWikiPath);
   const theme = useConfigStore((s) => s.theme);
   const setTheme = useConfigStore((s) => s.setTheme);
   const [showKey, setShowKey] = useState(false);
@@ -52,6 +56,80 @@ export function SettingsPanel() {
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto p-6 space-y-8">
         <h2 className="text-lg font-semibold">设置</h2>
+
+        {/* ---- 仓库配置 ---- */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-medium">📁 仓库配置</h3>
+          <div>
+            <label className="text-xs text-muted-foreground">仓库路径</label>
+            <div className="flex gap-2 mt-1">
+              <input
+                type="text"
+                value={repoPath}
+                onChange={(e) => { setRepoPath(e.target.value); setSaved(false); }}
+                placeholder="输入或粘贴仓库路径..."
+                className="flex-1 px-3 py-2 text-sm rounded-md border border-input bg-background"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const { open } = await import("@tauri-apps/plugin-dialog");
+                    const selected = await open({ directory: true, multiple: false, title: "选择仓库目录" });
+                    if (selected) { setRepoPath(selected as string); setSaved(false); }
+                  } catch {
+                    alert("请手动输入或粘贴仓库路径到上方输入框中。\n\n（在 Tauri 桌面版中，此按钮将打开原生文件夹选择器。）");
+                  }
+                }}
+                className="shrink-0 px-3 py-2 text-sm rounded-md border border-input bg-background hover:bg-accent transition-colors"
+                title="从本地选择仓库目录"
+              >
+                📂 浏览
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">
+              Wiki 输出目录（.code-wiki 的父目录，留空则放在仓库根目录）
+            </label>
+            <div className="flex gap-2 mt-1">
+              <input
+                type="text"
+                value={wikiPath}
+                onChange={(e) => { setWikiPath(e.target.value); setSaved(false); }}
+                placeholder="留空 = {仓库路径}/.code-wiki"
+                className="flex-1 px-3 py-2 text-sm rounded-md border border-input bg-background"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const { open } = await import("@tauri-apps/plugin-dialog");
+                    const selected = await open({ directory: true, multiple: false, title: "选择 Wiki 输出目录" });
+                    if (selected) { setWikiPath(selected as string); setSaved(false); }
+                  } catch {
+                    alert("请手动输入或粘贴 Wiki 输出目录路径。\n\n（在 Tauri 桌面版中，此按钮将打开原生文件夹选择器。）");
+                  }
+                }}
+                className="shrink-0 px-3 py-2 text-sm rounded-md border border-input bg-background hover:bg-accent transition-colors"
+                title="从本地选择 Wiki 输出目录"
+              >
+                📂 浏览
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              await saveConfig();
+              setSaved(true);
+              setTimeout(() => setSaved(false), 2000);
+            }}
+            className="w-full px-4 py-2 text-sm rounded-md border border-input bg-background hover:bg-accent disabled:opacity-50 transition-colors"
+          >
+            {saved ? "✓ 已同步" : "💾 同步仓库配置到后端"}
+          </button>
+        </section>
 
         {/* ---- LLM 配置 ---- */}
         <section className="space-y-3">

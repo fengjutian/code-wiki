@@ -2,9 +2,6 @@ import { useConfigStore } from "@/store/configStore";
 
 export function AnalysisPanel() {
   const repoPath = useConfigStore((s) => s.repoPath);
-  const setRepoPath = useConfigStore((s) => s.setRepoPath);
-  const wikiPath = useConfigStore((s) => s.wikiPath);
-  const setWikiPath = useConfigStore((s) => s.setWikiPath);
   const excludePatterns = useConfigStore((s) => s.excludePatterns);
   const setExcludePatterns = useConfigStore((s) => s.setExcludePatterns);
   const llm = useConfigStore((s) => s.llm);
@@ -19,72 +16,21 @@ export function AnalysisPanel() {
       <div className="max-w-2xl mx-auto p-6 space-y-8">
         <h2 className="text-lg font-semibold">分析</h2>
 
-        {/* ---- 仓库配置 ---- */}
+        {/* ---- 仓库路径只读展示 ---- */}
         <section className="space-y-3">
-          <h3 className="text-sm font-medium">📁 仓库配置</h3>
-          <div>
-            <label className="text-xs text-muted-foreground">仓库路径</label>
-            <div className="flex gap-2 mt-1">
-              <input
-                type="text"
-                value={repoPath}
-                onChange={(e) => setRepoPath(e.target.value)}
-                placeholder="输入或粘贴仓库路径..."
-                className="flex-1 px-3 py-2 text-sm rounded-md border border-input bg-background"
-              />
-              <button
-                type="button"
-                onClick={async () => {
-                  // Try Tauri native dialog (when @tauri-apps/plugin-dialog is installed)
-                  try {
-                    const { open } = await import("@tauri-apps/plugin-dialog");
-                    const selected = await open({ directory: true, multiple: false, title: "选择仓库目录" });
-                    if (selected) setRepoPath(selected as string);
-                  } catch {
-                    // In browser dev mode, native dialog is unavailable.
-                    // Browser security does not expose the full filesystem path,
-                    // so the user must paste the path manually.
-                    alert("请手动输入或粘贴仓库路径到上方输入框中。\n\n（在 Tauri 桌面版中，此按钮将打开原生文件夹选择器。）");
-                  }
-                }}
-                className="shrink-0 px-3 py-2 text-sm rounded-md border border-input bg-background hover:bg-accent transition-colors"
-                title="从本地选择仓库目录"
-              >
-                📂 浏览
-              </button>
-            </div>
+          <h3 className="text-sm font-medium">📁 当前仓库</h3>
+          <div className="p-3 rounded-md bg-secondary/50 border border-border text-sm">
+            <span className="text-muted-foreground">路径: </span>
+            <code className="font-mono text-xs">{repoPath || "(未配置 — 请前往「设置」配置仓库路径)"}</code>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground">
-              Wiki 输出目录（.code-wiki 的父目录，留空则放在仓库根目录）
-            </label>
-            <div className="flex gap-2 mt-1">
-              <input
-                type="text"
-                value={wikiPath}
-                onChange={(e) => setWikiPath(e.target.value)}
-                placeholder="留空 = {仓库路径}/.code-wiki"
-                className="flex-1 px-3 py-2 text-sm rounded-md border border-input bg-background"
-              />
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const { open } = await import("@tauri-apps/plugin-dialog");
-                    const selected = await open({ directory: true, multiple: false, title: "选择 Wiki 输出目录" });
-                    if (selected) setWikiPath(selected as string);
-                  } catch {
-                    alert("请手动输入或粘贴 Wiki 输出目录路径。\n\n（在 Tauri 桌面版中，此按钮将打开原生文件夹选择器。）");
-                  }
-                }}
-                className="shrink-0 px-3 py-2 text-sm rounded-md border border-input bg-background hover:bg-accent transition-colors"
-                title="从本地选择 Wiki 输出目录"
-              >
-                📂 浏览
-              </button>
-            </div>
-          </div>
-          <div>
+          {!repoPath && (
+            <p className="text-xs text-amber-500">⚠️ 请先在设置页面配置仓库路径后再运行分析</p>
+          )}
+        </section>
+
+        {/* ---- 排除规则 ---- */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-medium">🚫 排除规则</h3>
             <label className="text-xs text-muted-foreground">
               排除规则（每行一个 glob 模式）
             </label>
@@ -96,7 +42,6 @@ export function AnalysisPanel() {
               rows={5}
               className="w-full mt-1 px-3 py-2 text-sm font-mono rounded-md border border-input bg-background resize-y"
             />
-          </div>
         </section>
 
         {/* ---- 分析设置 ---- */}

@@ -8,6 +8,7 @@ const tabs = [
   { id: "wiki" as const, label: "Wiki", icon: BookOpenIcon },
   { id: "graph" as const, label: "图谱", icon: GitGraphIcon },
   { id: "cfg" as const, label: "CFG", icon: GitBranchIcon },
+  { id: "icfg" as const, label: "ICFG", icon: GitGraphIcon },
   { id: "search" as const, label: "搜索", icon: SearchIcon },
   { id: "impact" as const, label: "影响", icon: AlertTriangleIcon },
   { id: "metrics" as const, label: "指标", icon: GaugeIcon },
